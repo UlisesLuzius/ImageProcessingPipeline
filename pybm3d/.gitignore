@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ### Project Specific stuff
 test_run_dir/*
 ### XilinxISE template
@@ -337,3 +338,36 @@ project/plugins/project/
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
+
+=======
+pybm3d/*.cpp
+pybm3d/*.c
+*.png
+
+# Distribution / packaging
+build/
+*.egg-info/
+*.eggs
+dist
+
+# C extensions
+*.so
+
+# OSX
+.DS_Store
+
+# Text editor backup files
+*~
+*.swp
+
+# Python
+.venv
+*.pyc
+__pycache__
+.ipynb_checkpoints
+.python-version
+
+# Unit test / coverage reports
+.tox/
+.cache
+>>>>>>> pybm3d-origin/master
