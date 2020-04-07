@@ -1,0 +1,3 @@
+bm3d/*.c
+dist/
+*/__pycache__/
