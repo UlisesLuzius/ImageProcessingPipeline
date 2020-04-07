@@ -1,3 +1,7 @@
+# cython: profile=True
+from __future__ import print_function
+cimport cython
+
 """
 Execute bm3d hard-thresholding and bm3d Wiener filtering stage calls with bm3d binaries.
 """
@@ -7,22 +11,23 @@ from .profiles import BM3DProfile, BM3DStages
 cimport numpy as np
 from libc.stdlib cimport free
 
-cdef extern from "bm3d_py.h":
-    float* bm3d_threshold_colored_interface(double* z, float, int, int, int,
-										int, int, float, int,
-										float*, float*, float*, float*,
-										float*, double*,
-										float*, int, int, float, int,
-										int*)
 
 cdef extern from "bm3d_py.h":
-    float* bm3d_wiener_colored_interface(double*, float*, int, int, int,
-                                        int, int, float, int,
-                                        float*, float*, float*, float*,
-                                        float*, double*,
-                                        float*, int, int, int, int*)
+float* bm3d_threshold_colored_interface(double* z, float, int, int, int,
+    int, int, float, int,
+    float*, float*, float*, float*,
+    float*, double*,
+    float*, int, int, float, int,
+    int*)
 
+cdef extern from "bm3d_py.h":
+float* bm3d_wiener_colored_interface(double*, float*, int, int, int,
+    int, int, float, int,
+    float*, float*, float*, float*,
+    float*, double*,
+    float*, int, int, int, int*)
 
+@cython.profile(False)
 def llen(x) -> int:
     """
     Calculate the length of input if list, else give 1
@@ -31,6 +36,7 @@ def llen(x) -> int:
     """
     return len(x) if type(x) is list else 1
 
+@cython.profile(False)
 def flatten_transf(transf_dict: dict) -> np.ndarray:
     """
     Flatten the stack transforms computed by __get_transforms to format used by the binary.
@@ -44,6 +50,7 @@ def flatten_transf(transf_dict: dict) -> np.ndarray:
     total_list = np.array(total_list)
     return total_list
 
+@cython.profile(False)
 def format_psd(psd: np.ndarray, single_dim_psd: bool) -> np.ndarray:
     """
     Format PSD in the format used by the binary file.
@@ -61,6 +68,7 @@ def format_psd(psd: np.ndarray, single_dim_psd: bool) -> np.ndarray:
     return psd
 
 
+@cython.profile(True)
 def bm3d_step(mode: BM3DStages, z: np.ndarray, psd: np.ndarray, single_dim_psd: bool, profile: BM3DProfile,
               t_fwd: np.ndarray, t_inv: np.ndarray, t_fwd_3d: dict, t_inv_3d: dict,
               wwin: np.ndarray, channel_count: int, pre_block_matches: np.ndarray,
@@ -84,13 +92,14 @@ def bm3d_step(mode: BM3DStages, z: np.ndarray, psd: np.ndarray, single_dim_psd: 
     :return: tuple (estimate, blockmatches), where estimate is the same size as z, and blockmatches either
              empty or containing the blockmatch data if pre_block_matches was [1]
     """
-    z_shape = z.shape    
+    print("Starting step")
+    z_shape = z.shape
     z = z.transpose(2, 1, 0).flatten()
     t_inv = t_inv.T.flatten()
     t_fwd = t_fwd.T.flatten()
     t_inv_3d_flat = flatten_transf(t_inv_3d)
     t_fwd_3d_flat = flatten_transf(t_fwd_3d)
-    wwin = wwin.T.flatten()   
+    wwin = wwin.T.flatten()
 
     psd = format_psd(psd, single_dim_psd)
 

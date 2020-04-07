@@ -3,7 +3,7 @@ import os
 from ctypes.util import find_library
 from sys import platform
 
-USE_CYTHON = False
+USE_CYTHON = True
 ext_modules = []
 
 if USE_CYTHON:
@@ -39,6 +39,7 @@ if USE_CYTHON:
         else:
             lib_names += ["openblas"]
 
+        print("Building local bm3d")
         bm3d_source = Extension(
             name="bm3d.bm3d_c",
             sources=["bm3d/bm3d_c.pyx"],
