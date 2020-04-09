@@ -1,4 +1,5 @@
 # setuptools: language = c++
+import multiprocessing
 import numpy as np
 
 from libcpp.vector cimport vector
@@ -6,17 +7,12 @@ from libcpp cimport bool
 cimport numpy as np
 
 
-__all__ = ['PARAMS', 'bm3d']
+__all__ = ['PARAMS', 'bm3d', 'bm3d_raw']
 
 
-PARAMS = {"YUV": 0,
-          "YCBCR": 1,
-          "OPP": 2,
-          "RGB": 3,
-          "DCT": 4,
-          "BIOR": 5,
-          "HADAMARD": 6,
-          "NONE": 7}
+PARAMS = {'color_space': {'YUV': 0, 'YCBCR': 1, 'OPP': 2, 'RGB': 3},
+               'tau_2D_hard': {'DCT': 4, 'BIOR': 5,},
+               'tau_2D_wien': {'DCT': 4, 'BIOR': 5,}}
 
 
 cdef extern from "../bm3d_src/bm3d.h":
@@ -32,10 +28,13 @@ cdef extern from "../bm3d_src/bm3d.h":
                  const unsigned tau_2D_wien,
                  const unsigned color_space,
                  const unsigned patch_size,
+                 const unsigned num_threads,
                  const bool verbose)
 
+    cdef bint _NO_OPENMP
 
-cpdef float[:,:,:] run_bm3d_wrap(
+
+cpdef float[:,:,:] bm3d_raw(
     float[:,:,:] input_array,
     float sigma,
     bool useSD_h=True,
@@ -44,6 +43,7 @@ cpdef float[:,:,:] run_bm3d_wrap(
     str tau_2D_wien="DCT",
     str color_space="YUV",
     int patch_size=0,
+    int num_threads=0,
     bool verbose=False):
     """
     sigma: value of assumed noise of the noisy image
@@ -63,22 +63,42 @@ cpdef float[:,:,:] run_bm3d_wrap(
     on every 3D group for the first (resp. second) part.
     Allowed values are 'DCT' and 'BIOR';
     """
-    tau_2D_hard_i = PARAMS.get(tau_2D_hard)
+    if num_threads < 0:
+        raise ValueError("Parameter num_threads must be 0 (default behavior) "
+                         "or larger than 0.")
+
+    if _NO_OPENMP and num_threads > 1:
+        raise ValueError("Parameter num_threads={} must not exceed 1 if "
+                         "OpenMP multithreading is not available. Please "
+                         "reinstall PyBM3D with OpenMP compatible "
+                         "compiler.".format(num_threads))
+
+    num_cpus = multiprocessing.cpu_count()
+    if num_threads > multiprocessing.cpu_count():
+        raise ValueError("Parameter num_threads={} must not exceed the number "
+                         "of real cores {}.".format(num_threads, num_cpus))
+
+    tau_2D_hard_i = PARAMS['tau_2D_hard'].get(tau_2D_hard)
     if tau_2D_hard_i is None:
-        raise ValueError("Unknown tau_2d_hard, must be 'DCT' or 'BIOR'")
+        raise ValueError("Parameter value tau_2D_hard={} is unknown. Please "
+                         "select {}.".format(tau_2D_hard,
+                                             list(PARAMS['tau_2D_hard'].keys())))
 
-    tau_2D_wien_i = PARAMS.get(tau_2D_wien)
+    tau_2D_wien_i = PARAMS['tau_2D_wien'].get(tau_2D_wien)
     if tau_2D_wien_i is None:
-        raise ValueError("Unknown tau_2d_wien, must be 'DCT' or 'BIOR'")
+        raise ValueError("Parameter value tau_2D_wien={} is unknown. Please "
+                         "select {}.".format(tau_2D_wien,
+                                             list(PARAMS['tau_2D_wien'].keys())))
 
-    color_space_i = PARAMS.get(color_space)
+    color_space_i = PARAMS['color_space'].get(color_space)
     if color_space_i is None:
-        raise ValueError("Unknown color_space, must be 'RGB', 'YUV', 'OPP'"
-                         " or 'YCBCR'")
+        raise ValueError("Parameter value color_space={} is unknown. Please "
+                         "select {}.".format(color_space,
+                                             list(PARAMS['color_space'].keys())))
 
     if patch_size < 0:
-        raise ValueError("The patch_size parameter must be 0 (default"
-                         " behavior) or larger than 0 (size to be used).")
+        raise ValueError("Parameter patch_size must be 0 (default behavior) "
+                         "or larger than 0.")
 
     cdef vector[float] input_image, basic_image, output_image
 
@@ -101,9 +121,11 @@ cpdef float[:,:,:] run_bm3d_wrap(
                    tau_2D_hard_i, tau_2D_wien_i,
                    color_space_i,
                    patch_size,
+                   num_threads,
                    verbose)
     if ret != 0:
-        raise Exception("run_bmd3d returned an error, ret_val=%d" % ret)
+        raise Exception("Executing the C function `run_bmd3d` returned "
+                        "with an error: {%d}".format(ret))
 
     cdef np.ndarray output_array = np.zeros([height, width, chnls],
                                             dtype=np.float32)
@@ -129,15 +151,19 @@ def bm3d(input_array, *args, clip=True, **kwargs):
     input_array = np.array(input_array)
     initial_shape, initial_dtype = input_array.shape, input_array.dtype
 
-    input_array = np.atleast_3d(input_array).astype(np.float32)
+    if not np.issubdtype(initial_dtype, np.integer):
+        raise TypeError("The given data type {} is not supported. Please "
+                        "provide input of type integer.".format(initial_dtype))
 
-    out = run_bm3d_wrap(input_array, *args, **kwargs)
+    input_array = np.atleast_3d(input_array).astype(np.float32)
+    if input_array.shape[2] not in [1, 3]:
+        raise IndexError("The given shape {} is not supported. Please provide "
+                         "input with 1 or 3 channels.".format(initial_shape))
+
+    out = bm3d_raw(input_array, *args, **kwargs)
     out = np.array(out, dtype=initial_dtype).reshape(initial_shape)
     if clip:
-        if np.issubdtype(initial_dtype, np.integer):
-            dtype_info = np.iinfo(initial_dtype)
-        else:
-            dtype_info = np.finfo(initial_dtype)
+        dtype_info = np.iinfo(initial_dtype)
         out = np.clip(out, dtype_info.min, dtype_info.max)
 
     return out
