@@ -36,15 +36,25 @@
 #define BIOR      5
 #define HADAMARD  6
 
-#ifdef _OPENMP
-    #include <omp.h>
-#endif
 
- using namespace std;
+/*
+ * In order to reproduce the original BM3D the DC coefficients are
+ * thresholded (DCTHRESH uncommented) and are filtered using Wiener
+ * (DCWIENER uncommented), MTRICK activates undocumented tricks from
+ * Marc Lebrun's implementation of BM3D available in IPOL
+ * http://www.ipol.im/pub/art/2012/l-bm3d/, not in the original paper.
+ */
 
- bool ComparaisonFirst(pair<float,unsigned> pair1, pair<float,unsigned> pair2)
+#define DCTHRESH
+#define DCWIENER
+//#define MTRICK
+
+
+using namespace std;
+
+static inline bool ComparaisonFirst(pair<float,unsigned> pair1, pair<float,unsigned> pair2)
 {
-	return pair1.first < pair2.first;
+    return pair1.first < pair2.first;
 }
 
 /** ----------------- **/
@@ -70,33 +80,57 @@
  *        Allowed values are DCT and BIOR;
  * @param color_space: Transformation from RGB to YUV. Allowed
  *        values are RGB (do nothing), YUV, YCBCR and OPP.
+ * @param patch_size: overrides the default patch size selection.
+ *        patch_size=0: use default behavior
+ *        patch_size>0: size to be used
+ * @param verbose: if true, print additional information;
  *
  * @return EXIT_FAILURE if color_space has not expected
  *         type, otherwise return EXIT_SUCCESS.
  **/
-int run_bm3d(
-    const float sigma
-,   vector<float> &img_noisy
-,   vector<float> &img_basic
-,   vector<float> &img_denoised
-,   const unsigned width
-,   const unsigned height
-,   const unsigned chnls
-,   const bool useSD_h
-,   const bool useSD_w
-,   const unsigned tau_2D_hard
-,   const unsigned tau_2D_wien
-,   const unsigned color_space
-){
+int run_bm3d (
+    const float sigma,
+    vector<float> &img_noisy,
+    vector<float> &img_basic,
+    vector<float> &img_denoised,
+    const unsigned width,
+    const unsigned height,
+    const unsigned chnls,
+    const bool useSD_h,
+    const bool useSD_w,
+    const unsigned tau_2D_hard,
+    const unsigned tau_2D_wien,
+    const unsigned color_space,
+    const unsigned patch_size,
+    const unsigned nb_threads,
+    const bool verbose
+    ){
     //! Parameters
     const unsigned nHard = 16; //! Half size of the search window
     const unsigned nWien = 16; //! Half size of the search window
-    const unsigned kHard = (tau_2D_hard == BIOR || sigma < 40.f ? 8 : 12); //! Must be a power of 2 if tau_2D_hard == BIOR
-    const unsigned kWien = (tau_2D_wien == BIOR || sigma < 40.f ? 8 : 12); //! Must be a power of 2 if tau_2D_wien == BIOR
     const unsigned NHard = 16; //! Must be a power of 2
     const unsigned NWien = 32; //! Must be a power of 2
     const unsigned pHard = 3;
     const unsigned pWien = 3;
+    // patch_size must be larger than 0
+    if (patch_size == 0)
+    {
+        if (verbose) cout << "Parameter patch_size is selected automatically (8 or 12)." << endl;
+    } else {
+        // patch_size must be a power of 2 if tau_2D_* == BIOR
+        if ((tau_2D_hard == BIOR ||
+             tau_2D_wien == BIOR) &&
+            (patch_size & (patch_size - 1)) != 0)
+        {
+            cout << "Parameter patch_size must be a power of 2 if tau_2D_* == BIOR" << endl;
+            return EXIT_FAILURE;
+        }
+    }
+    //! Overrides size if patch_size>0, else default behavior (8 or 12 depending on test)
+    const unsigned kHard = patch_size > 0 ? patch_size :
+        ((tau_2D_hard == BIOR || sigma < 40.f) ? 8 : 12);
+    const unsigned kWien = patch_size > 0 ? patch_size :
+        ((tau_2D_wien == BIOR || sigma < 40.f) ? 8 : 12);
 
     //! Check memory allocation
     if (img_basic.size() != img_noisy.size())
@@ -109,29 +143,57 @@ int run_bm3d(
         != EXIT_SUCCESS) return EXIT_FAILURE;
 
     //! Check if OpenMP is used or if number of cores of the computer is > 1
-    unsigned nb_threads = 1;
+    unsigned _nb_threads = nb_threads;
+    if (verbose)
+    {
+        cout << "OpenMP multithreading is";
+#ifndef _OPENMP
+        cout << " not";
+#endif
+        cout << " available." << endl;
+    }
 
+    // set _nb_threads
 #ifdef _OPENMP
-    cout << "Open MP used" << endl;
-    nb_threads = omp_get_num_procs();
+    unsigned avail_nb_threads = omp_get_max_threads();
+    unsigned avail_nb_cores = omp_get_num_procs();
 
-    //! In case where the number of processors isn't a power of 2
-    if (!power_of_2(nb_threads))
-        nb_threads = closest_power_of_2(nb_threads);
+    // if specified number exceeds available threads of if not specified at all
+    // at least use all available threads
+    if (_nb_threads > avail_nb_threads || _nb_threads == 0)
+    {
+        // log if specified number of threads exeeds number of real cores
+        if (_nb_threads > avail_nb_cores)
+            cout << "Parameter nb_threads should not exceed the number of real cores." << endl;
+        _nb_threads = avail_nb_threads;
+    }
+    // In case the number of threads is not a power of 2
+    if (!power_of_2(_nb_threads))
+        _nb_threads = closest_power_of_2(_nb_threads);
+#else
+    if (_nb_threads > 1)
+    {
+        cout << "Parameter nb_threads has no effect if OpenMP multithreading is not available." << endl;
+    }
+    _nb_threads = 1;
 #endif
 
-    cout << endl << "Number of threads which will be used: " << nb_threads;
+    if (verbose)
+    {
+        cout << "Working threads: " << _nb_threads;
 #ifdef _OPENMP
-    cout << " (real available cores: " << omp_get_num_procs() << ")" << endl;
+        cout << " (Must be 2^n) (Total available threads/real cores: " << avail_nb_threads << "/" << avail_nb_cores << ")";
 #endif
+        cout << endl;
+    }
 
     //! Allocate plan for FFTW library
-    fftwf_plan plan_2d_for_1[nb_threads];
-    fftwf_plan plan_2d_for_2[nb_threads];
-    fftwf_plan plan_2d_inv[nb_threads];
+    fftwf_plan plan_2d_for_1[_nb_threads];
+    fftwf_plan plan_2d_for_2[_nb_threads];
+    fftwf_plan plan_2d_inv[_nb_threads];
 
     //! In the simple case
-    if (nb_threads == 1)
+    if (_nb_threads == 1)
     {
         //! Add boundaries and symetrize them
         const unsigned h_b = height + 2 * nHard;
@@ -144,19 +206,19 @@ int run_bm3d(
         {
             const unsigned nb_cols = ind_size(w_b - kHard + 1, nHard, pHard);
             allocate_plan_2d(&plan_2d_for_1[0], kHard, FFTW_REDFT10,
-                                                        w_b * (2 * nHard + 1) * chnls);
+                             w_b * (2 * nHard + 1) * chnls);
             allocate_plan_2d(&plan_2d_for_2[0], kHard, FFTW_REDFT10,
-                                                        w_b * pHard * chnls);
+                             w_b * pHard * chnls);
             allocate_plan_2d(&plan_2d_inv  [0], kHard, FFTW_REDFT01,
-                                                        NHard * nb_cols * chnls);
+                             NHard * nb_cols * chnls);
         }
 
         //! Denoising, 1st Step
-        cout << "step 1...";
+        if (verbose) cout << "BM3D 1st step...";
         bm3d_1st_step(sigma, img_sym_noisy, img_sym_basic, w_b, h_b, chnls, nHard,
                       kHard, NHard, pHard, useSD_h, color_space, tau_2D_hard,
                       &plan_2d_for_1[0], &plan_2d_for_2[0], &plan_2d_inv[0]);
-        cout << "done." << endl;
+        if (verbose) cout << "is done." << endl;
 
         //! To avoid boundaries problem
         for (unsigned c = 0; c < chnls; c++)
@@ -174,19 +236,19 @@ int run_bm3d(
         {
             const unsigned nb_cols = ind_size(w_b - kWien + 1, nWien, pWien);
             allocate_plan_2d(&plan_2d_for_1[0], kWien, FFTW_REDFT10,
-                                                        w_b * (2 * nWien + 1) * chnls);
+                             w_b * (2 * nWien + 1) * chnls);
             allocate_plan_2d(&plan_2d_for_2[0], kWien, FFTW_REDFT10,
-                                                        w_b * pWien * chnls);
+                             w_b * pWien * chnls);
             allocate_plan_2d(&plan_2d_inv  [0], kWien, FFTW_REDFT01,
-                                                        NWien * nb_cols * chnls);
+                             NWien * nb_cols * chnls);
         }
 
         //! Denoising, 2nd Step
-        cout << "step 2...";
+        if (verbose) cout << "BM3D 2nd step...";
         bm3d_2nd_step(sigma, img_sym_noisy, img_sym_basic, img_sym_denoised,
-                w_b, h_b, chnls, nWien, kWien, NWien, pWien, useSD_w, color_space,
-                tau_2D_wien, &plan_2d_for_1[0], &plan_2d_for_2[0], &plan_2d_inv[0]);
-        cout << "done." << endl;
+                      w_b, h_b, chnls, nWien, kWien, NWien, pWien, useSD_w, color_space,
+                      tau_2D_wien, &plan_2d_for_1[0], &plan_2d_for_2[0], &plan_2d_inv[0]);
+        if (verbose) cout << "is done." << endl;
 
         //! Obtention of img_denoised
         for (unsigned c = 0; c < chnls; c++)
@@ -201,35 +263,35 @@ int run_bm3d(
     //! If more than 1 threads are used
     else
     {
-        //! Cut the image in nb_threads parts
-        vector<vector<float> > sub_noisy(nb_threads);
-        vector<vector<float> > sub_basic(nb_threads);
-        vector<vector<float> > sub_denoised(nb_threads);
-        vector<unsigned> h_table(nb_threads);
-        vector<unsigned> w_table(nb_threads);
+        //! Cut the image in _nb_threads parts
+        vector<vector<float> > sub_noisy(_nb_threads);
+        vector<vector<float> > sub_basic(_nb_threads);
+        vector<vector<float> > sub_denoised(_nb_threads);
+        vector<unsigned> h_table(_nb_threads);
+        vector<unsigned> w_table(_nb_threads);
         sub_divide(img_noisy, sub_noisy, w_table, h_table, width, height, chnls,
-                                                                        2 * nWien, true);
+                   2 * nWien, true);
 
         //! Allocating Plan for FFTW process
         if (tau_2D_hard == DCT)
-            for (unsigned n = 0; n < nb_threads; n++)
+            for (unsigned n = 0; n < _nb_threads; n++)
             {
                 const unsigned nb_cols = ind_size(w_table[n] - kHard + 1, nHard, pHard);
                 allocate_plan_2d(&plan_2d_for_1[n], kHard, FFTW_REDFT10,
-                                                w_table[n] * (2 * nHard + 1) * chnls);
+                                 w_table[n] * (2 * nHard + 1) * chnls);
                 allocate_plan_2d(&plan_2d_for_2[n], kHard, FFTW_REDFT10,
-                                                w_table[n] * pHard * chnls);
+                                 w_table[n] * pHard * chnls);
                 allocate_plan_2d(&plan_2d_inv  [n], kHard, FFTW_REDFT01,
-                                                NHard * nb_cols * chnls);
+                                 NHard * nb_cols * chnls);
             }
 
         //! denoising : 1st Step
-        cout << "step 1...";
-        #pragma omp parallel shared(sub_noisy, sub_basic, w_table, h_table, \
-                                    plan_2d_for_1, plan_2d_for_2, plan_2d_inv)
+        if (verbose) cout << "BM3D 1st step...";
+#pragma omp parallel shared(sub_noisy, sub_basic, w_table, h_table, \
+                            plan_2d_for_1, plan_2d_for_2, plan_2d_inv)
         {
-            #pragma omp for schedule(dynamic) nowait
-            for (unsigned n = 0; n < nb_threads; n++)
+#pragma omp for schedule(dynamic) nowait
+            for (unsigned n = 0; n < _nb_threads; n++)
             {
                 bm3d_1st_step(sigma, sub_noisy[n], sub_basic[n], w_table[n],
                               h_table[n], chnls, nHard, kHard, NHard, pHard, useSD_h,
@@ -237,35 +299,35 @@ int run_bm3d(
                               &plan_2d_for_2[n], &plan_2d_inv[n]);
             }
         }
-        cout << "done." << endl;
+        if (verbose) cout << "is done." << endl;
 
         sub_divide(img_basic, sub_basic, w_table, h_table,
-                                                width, height, chnls, 2 * nHard, false);
+                   width, height, chnls, 2 * nHard, false);
 
         sub_divide(img_basic, sub_basic, w_table, h_table, width, height, chnls,
-                                                                        2 * nHard, true);
+                   2 * nHard, true);
 
         //! Allocating Plan for FFTW process
         if (tau_2D_wien == DCT)
-            for (unsigned n = 0; n < nb_threads; n++)
+            for (unsigned n = 0; n < _nb_threads; n++)
             {
                 const unsigned nb_cols = ind_size(w_table[n] - kWien + 1, nWien, pWien);
                 allocate_plan_2d(&plan_2d_for_1[n], kWien, FFTW_REDFT10,
-                                                w_table[n] * (2 * nWien + 1) * chnls);
+                                 w_table[n] * (2 * nWien + 1) * chnls);
                 allocate_plan_2d(&plan_2d_for_2[n], kWien, FFTW_REDFT10,
-                                                w_table[n] * pWien * chnls);
+                                 w_table[n] * pWien * chnls);
                 allocate_plan_2d(&plan_2d_inv  [n], kWien, FFTW_REDFT01,
-                                                NWien * nb_cols * chnls);
+                                 NWien * nb_cols * chnls);
             }
 
         //! Denoising: 2nd Step
-        cout << "step 2...";
-        #pragma omp parallel shared(sub_noisy, sub_basic, sub_denoised,  w_table, \
-                                    h_table, plan_2d_for_1, plan_2d_for_2,  \
-                                    plan_2d_inv)
+        if (verbose) cout << "BM3D 2nd step...";
+#pragma omp parallel shared(sub_noisy, sub_basic, sub_denoised,  w_table, \
+                            h_table, plan_2d_for_1, plan_2d_for_2,  \
+                            plan_2d_inv)
         {
-            #pragma omp for schedule(dynamic) nowait
-            for (unsigned n = 0; n < nb_threads; n++)
+#pragma omp for schedule(dynamic) nowait
+            for (unsigned n = 0; n < _nb_threads; n++)
             {
                 bm3d_2nd_step(sigma, sub_noisy[n], sub_basic[n], sub_denoised[n],
                               w_table[n], h_table[n], chnls, nWien, kWien, NWien, pWien,
@@ -273,11 +335,11 @@ int run_bm3d(
                               &plan_2d_for_2[n], &plan_2d_inv[n]);
             }
         }
-        cout << "done." << endl;
+        if (verbose) cout << "is done." << endl;
 
         //! Reconstruction of the image
         sub_divide(img_denoised, sub_denoised, w_table, h_table,
-                                                width, height, chnls, 2 * nWien, false);
+                   width, height, chnls, 2 * nWien, false);
     }
 
     //! Inverse color space transform to RGB
@@ -290,7 +352,7 @@ int run_bm3d(
 
     //! Free Memory
     if (tau_2D_hard == DCT || tau_2D_wien == DCT)
-        for (unsigned n = 0; n < nb_threads; n++)
+        for (unsigned n = 0; n < _nb_threads; n++)
         {
             fftwf_destroy_plan(plan_2d_for_1[n]);
             fftwf_destroy_plan(plan_2d_for_2[n]);
@@ -321,24 +383,24 @@ int run_bm3d(
  *
  * @return none.
  **/
-void bm3d_1st_step(
-    const float sigma
-,   vector<float> const& img_noisy
-,   vector<float> &img_basic
-,   const unsigned width
-,   const unsigned height
-,   const unsigned chnls
-,   const unsigned nHard
-,   const unsigned kHard
-,   const unsigned NHard
-,   const unsigned pHard
-,   const bool     useSD
-,   const unsigned color_space
-,   const unsigned tau_2D
-,   fftwf_plan *  plan_2d_for_1
-,   fftwf_plan *  plan_2d_for_2
-,   fftwf_plan *  plan_2d_inv
-){
+void bm3d_1st_step (
+    const float sigma,
+    vector<float> const& img_noisy,
+    vector<float> &img_basic,
+    const unsigned width,
+    const unsigned height,
+    const unsigned chnls,
+    const unsigned nHard,
+    const unsigned kHard,
+    const unsigned NHard,
+    const unsigned pHard,
+    const bool     useSD,
+    const unsigned color_space,
+    const unsigned tau_2D,
+    fftwf_plan *  plan_2d_for_1,
+    fftwf_plan *  plan_2d_for_2,
+    fftwf_plan *  plan_2d_inv
+    ){
     //! Estimatation of sigma on each channel
     vector<float> sigma_table(chnls);
     if (estimate_sigma(sigma, sigma_table, chnls, color_space) != EXIT_SUCCESS)
@@ -390,13 +452,14 @@ void bm3d_1st_step(
         const unsigned i_r = row_ind[ind_i];
 
         //! Update of table_2D
-        if (tau_2D == DCT)
+        if (tau_2D == DCT) {
             dct_2d_process(table_2D, img_noisy, plan_2d_for_1, plan_2d_for_2, nHard,
                            width, height, chnls, kHard, i_r, pHard, coef_norm,
                            row_ind[0], row_ind.back());
-        else if (tau_2D == BIOR)
+        } else if (tau_2D == BIOR) {
             bior_2d_process(table_2D, img_noisy, nHard, width, height, chnls,
-                        kHard, i_r, pHard, row_ind[0], row_ind.back(), lpd, hpd);
+                            kHard, i_r, pHard, row_ind[0], row_ind.back(), lpd, hpd);
+        }
 
         wx_r_table.clear();
         group_3D_table.clear();
@@ -425,7 +488,7 @@ void bm3d_1st_step(
             //! HT filtering of the 3D group
             vector<float> weight_table(chnls);
             ht_filtering_hadamard(group_3D, hadamard_tmp, nSx_r, kHard, chnls, sigma_table,
-                                                    lambdaHard3D, weight_table, !useSD);
+                                  lambdaHard3D, weight_table, !useSD);
 
             //! 3D weighting using Standard Deviation
             if (useSD)
@@ -436,7 +499,7 @@ void bm3d_1st_step(
                 for (unsigned n = 0; n < nSx_r; n++)
                     for (unsigned k = 0; k < kHard_2; k++)
                         group_3D_table.push_back(group_3D[n + k * nSx_r +
-                                                                    c * kHard_2 * nSx_r]);
+                                                 c * kHard_2 * nSx_r]);
 
             //! Save weighting
             for (unsigned c = 0; c < chnls; c++)
@@ -468,11 +531,11 @@ void bm3d_1st_step(
                         {
                             const unsigned ind = k + p * width + q;
                             numerator[ind] += kaiser_window[p * kHard + q]
-                                            * wx_r_table[c + ind_j * chnls]
-                                            * group_3D_table[p * kHard + q + n * kHard_2
-                                                  + c * kHard_2 * nSx_r + dec];
+                                * wx_r_table[c + ind_j * chnls]
+                                * group_3D_table[p * kHard + q + n * kHard_2
+                                + c * kHard_2 * nSx_r + dec];
                             denominator[ind] += kaiser_window[p * kHard + q]
-                                            * wx_r_table[c + ind_j * chnls];
+                                * wx_r_table[c + ind_j * chnls];
                         }
                 }
             }
@@ -507,24 +570,24 @@ void bm3d_1st_step(
  * @return none.
  **/
 void bm3d_2nd_step(
-    const float sigma
-,   vector<float> const& img_noisy
-,   vector<float> const& img_basic
-,   vector<float> &img_denoised
-,   const unsigned width
-,   const unsigned height
-,   const unsigned chnls
-,   const unsigned nWien
-,   const unsigned kWien
-,   const unsigned NWien
-,   const unsigned pWien
-,   const bool     useSD
-,   const unsigned color_space
-,   const unsigned tau_2D
-,   fftwf_plan *  plan_2d_for_1
-,   fftwf_plan *  plan_2d_for_2
-,   fftwf_plan *  plan_2d_inv
-){
+    const float sigma,
+    vector<float> const& img_noisy,
+    vector<float> const& img_basic,
+    vector<float> &img_denoised,
+    const unsigned width,
+    const unsigned height,
+    const unsigned chnls,
+    const unsigned nWien,
+    const unsigned kWien,
+    const unsigned NWien,
+    const unsigned pWien,
+    const bool     useSD,
+    const unsigned color_space,
+    const unsigned tau_2D,
+    fftwf_plan *  plan_2d_for_1,
+    fftwf_plan *  plan_2d_for_2,
+    fftwf_plan *  plan_2d_inv
+    ){
     //! Estimatation of sigma on each channel
     vector<float> sigma_table(chnls);
     if (estimate_sigma(sigma, sigma_table, chnls, color_space) != EXIT_SUCCESS)
@@ -588,9 +651,9 @@ void bm3d_2nd_step(
         else if (tau_2D == BIOR)
         {
             bior_2d_process(table_2D_img, img_noisy, nWien, width, height,
-                chnls, kWien, i_r, pWien, row_ind[0], row_ind.back(), lpd, hpd);
+                            chnls, kWien, i_r, pWien, row_ind[0], row_ind.back(), lpd, hpd);
             bior_2d_process(table_2D_est, img_basic, nWien, width, height,
-                chnls, kWien, i_r, pWien, row_ind[0], row_ind.back(), lpd, hpd);
+                            chnls, kWien, i_r, pWien, row_ind[0], row_ind.back(), lpd, hpd);
         }
 
         wx_r_table.clear();
@@ -625,7 +688,7 @@ void bm3d_2nd_step(
             //! Wiener filtering of the 3D group
             vector<float> weight_table(chnls);
             wiener_filtering_hadamard(group_3D_img, group_3D_est, tmp, nSx_r, kWien,
-                                            chnls, sigma_table, weight_table, !useSD);
+                                      chnls, sigma_table, weight_table, !useSD);
 
             //! 3D weighting using Standard Deviation
             if (useSD)
@@ -667,11 +730,11 @@ void bm3d_2nd_step(
                         {
                             const unsigned ind = k + p * width + q;
                             numerator[ind] += kaiser_window[p * kWien + q]
-                                            * wx_r_table[c + ind_j * chnls]
-                                            * group_3D_table[p * kWien + q + n * kWien_2
-                                                  + c * kWien_2 * nSx_r + dec];
+                                * wx_r_table[c + ind_j * chnls]
+                                * group_3D_table[p * kWien + q + n * kWien_2
+                                + c * kWien_2 * nSx_r + dec];
                             denominator[ind] += kaiser_window[p * kWien + q]
-                                            * wx_r_table[c + ind_j * chnls];
+                                * wx_r_table[c + ind_j * chnls];
                         }
                 }
             }
@@ -705,21 +768,21 @@ void bm3d_2nd_step(
  *        without processing it.
  **/
 void dct_2d_process(
-    vector<float> &DCT_table_2D
-,   vector<float> const& img
-,   fftwf_plan * plan_1
-,   fftwf_plan * plan_2
-,   const unsigned nHW
-,   const unsigned width
-,   const unsigned height
-,   const unsigned chnls
-,   const unsigned kHW
-,   const unsigned i_r
-,   const unsigned step
-,   vector<float> const& coef_norm
-,   const unsigned i_min
-,   const unsigned i_max
-){
+    vector<float> &DCT_table_2D,
+    vector<float> const& img,
+    fftwf_plan * plan_1,
+    fftwf_plan * plan_2,
+    const unsigned nHW,
+    const unsigned width,
+    const unsigned height,
+    const unsigned chnls,
+    const unsigned kHW,
+    const unsigned i_r,
+    const unsigned step,
+    vector<float> const& coef_norm,
+    const unsigned i_min,
+    const unsigned i_max
+    ){
     //! Declarations
     const unsigned kHW_2 = kHW * kHW;
     const unsigned size = chnls * kHW_2 * width * (2 * nHW + 1);
@@ -788,8 +851,8 @@ void dct_2d_process(
                     for (unsigned p = 0; p < kHW; p++)
                         for (unsigned q = 0; q < kHW; q++)
                             vec[p * kHW + q + dc_p + (i * width + j) * kHW_2] =
-                                        img[(p + i + 2 * nHW + 1 - step + i_r - nHW)
-                                                            * width + j + q + dc];
+                                img[(p + i + 2 * nHW + 1 - step + i_r - nHW)
+                                * width + j + q + dc];
         }
 
         //! Process of all DCTs
@@ -831,20 +894,20 @@ void dct_2d_process(
  * @param hpd : high pass filter of the forward bior1.5 2d transform.
  **/
 void bior_2d_process(
-    vector<float> &bior_table_2D
-,   vector<float> const& img
-,   const unsigned nHW
-,   const unsigned width
-,   const unsigned height
-,   const unsigned chnls
-,   const unsigned kHW
-,   const unsigned i_r
-,   const unsigned step
-,   const unsigned i_min
-,   const unsigned i_max
-,   vector<float> &lpd
-,   vector<float> &hpd
-){
+    vector<float> &bior_table_2D,
+    vector<float> const& img,
+    const unsigned nHW,
+    const unsigned width,
+    const unsigned height,
+    const unsigned chnls,
+    const unsigned kHW,
+    const unsigned i_r,
+    const unsigned step,
+    const unsigned i_min,
+    const unsigned i_max,
+    vector<float> &lpd,
+    vector<float> &hpd
+    ){
     //! Declarations
     const unsigned kHW_2 = kHW * kHW;
 
@@ -859,8 +922,8 @@ void bior_2d_process(
                 for (unsigned j = 0; j < width - kHW; j++)
                 {
                     bior_2d_forward(img, bior_table_2D, kHW, dc +
-                             (i_r + i - nHW) * width + j, width,
-                             dc_p + (i * width + j) * kHW_2, lpd, hpd);
+                                    (i_r + i - nHW) * width + j, width,
+                                    dc_p + (i * width + j) * kHW_2, lpd, hpd);
                 }
         }
     }
@@ -888,9 +951,9 @@ void bior_2d_process(
                 for (unsigned j = 0; j < width - kHW; j++)
                 {
                     bior_2d_forward(img, bior_table_2D, kHW, dc +
-                             (i + 2 * nHW + 1 - step + i_r - nHW) * width + j,
-                             width, dc_p + ((i + 2 * nHW + 1 - step)
-                             * width + j) * kHW_2, lpd, hpd);
+                                    (i + 2 * nHW + 1 - step + i_r - nHW) * width + j,
+                                    width, dc_p + ((i + 2 * nHW + 1 - step)
+                                                   * width + j) * kHW_2, lpd, hpd);
                 }
         }
     }
@@ -914,16 +977,16 @@ void bior_2d_process(
  * @return none.
  **/
 void ht_filtering_hadamard(
-    vector<float> &group_3D
-,   vector<float> &tmp
-,   const unsigned nSx_r
-,   const unsigned kHard
-,   const unsigned chnls
-,   vector<float> const& sigma_table
-,   const float lambdaHard3D
-,   vector<float> &weight_table
-,   const bool doWeight
-){
+    vector<float> &group_3D,
+    vector<float> &tmp,
+    const unsigned nSx_r,
+    const unsigned kHard,
+    const unsigned chnls,
+    vector<float> const& sigma_table,
+    const float lambdaHard3D,
+    vector<float> &weight_table,
+    const bool doWeight
+    ){
     //! Declarations
     const unsigned kHard_2 = kHard * kHard;
     for (unsigned c = 0; c < chnls; c++)
@@ -942,10 +1005,14 @@ void ht_filtering_hadamard(
         const float T = lambdaHard3D * sigma_table[c] * coef_norm;
         for (unsigned k = 0; k < kHard_2 * nSx_r; k++)
         {
+#ifdef DCTHRESH
             if (fabs(group_3D[k + dc]) > T)
-                weight_table[c]++;
-            else
-                group_3D[k + dc] = 0.0f;
+#else
+                if (k < 1 || fabs(group_3D[k + dc]) > T)
+#endif
+                    weight_table[c]++;
+                else
+                    group_3D[k + dc] = 0.0f;
         }
     }
 
@@ -960,7 +1027,7 @@ void ht_filtering_hadamard(
     if (doWeight)
         for (unsigned c = 0; c < chnls; c++)
             weight_table[c] = (weight_table[c] > 0.0f ? 1.0f / (float)
-                    (sigma_table[c] * sigma_table[c] * weight_table[c]) : 1.0f);
+                               (sigma_table[c] * sigma_table[c] * weight_table[c]) : 1.0f);
 }
 
 /**
@@ -980,16 +1047,16 @@ void ht_filtering_hadamard(
  * @return none.
  **/
 void wiener_filtering_hadamard(
-    vector<float> &group_3D_img
-,   vector<float> &group_3D_est
-,   vector<float> &tmp
-,   const unsigned nSx_r
-,   const unsigned kWien
-,   const unsigned chnls
-,   vector<float> const& sigma_table
-,   vector<float> &weight_table
-,   const bool doWeight
-){
+    vector<float> &group_3D_img,
+    vector<float> &group_3D_est,
+    vector<float> &tmp,
+    const unsigned nSx_r,
+    const unsigned kWien,
+    const unsigned chnls,
+    vector<float> const& sigma_table,
+    vector<float> &weight_table,
+    const bool doWeight
+    ){
     //! Declarations
     const unsigned kWien_2 = kWien * kWien;
     const float coef = 1.0f / (float) nSx_r;
@@ -1008,12 +1075,19 @@ void wiener_filtering_hadamard(
     for (unsigned c = 0; c < chnls; c++)
     {
         const unsigned dc = c * nSx_r * kWien_2;
+#ifdef DCWIENER
         for (unsigned k = 0; k < kWien_2 * nSx_r; k++)
+#else
+            group_3D_est[dc] = group_3D_img[dc] * coef;
+        // Add the weight corresponding to the DC components that were not passed through the Wiener filter
+        weight_table[c] += 1;
+        for (unsigned k = 1; k < kWien_2 * nSx_r; k++)
+#endif
         {
             float value = group_3D_est[dc + k] * group_3D_est[dc + k] * coef;
             value /= (value + sigma_table[c] * sigma_table[c]);
             group_3D_est[k + dc] = group_3D_img[k + dc] * value * coef;
-            weight_table[c] += value;
+            weight_table[c] += (value*value);
         }
     }
 
@@ -1025,7 +1099,7 @@ void wiener_filtering_hadamard(
     if (doWeight)
         for (unsigned c = 0; c < chnls; c++)
             weight_table[c] = (weight_table[c] > 0.0f ? 1.0f / (float)
-                    (sigma_table[c] * sigma_table[c] * weight_table[c]) : 1.0f);
+                               (sigma_table[c] * sigma_table[c] * weight_table[c]) : 1.0f);
 }
 
 /**
@@ -1040,15 +1114,15 @@ void wiener_filtering_hadamard(
  **/
 void dct_2d_inverse(
     vector<float> &group_3D_table
-,   const unsigned kHW
-,   const unsigned N
-,   vector<float> const& coef_norm_inv
-,   fftwf_plan * plan
-){
+    ,   const unsigned kHW
+    ,   const unsigned N
+    ,   vector<float> const& coef_norm_inv
+    ,   fftwf_plan * plan
+    ){
     //! Declarations
     const unsigned kHW_2 = kHW * kHW;
     const unsigned size = kHW_2 * N;
-	const unsigned Ns   = group_3D_table.size() / kHW_2;
+    const unsigned Ns   = group_3D_table.size() / kHW_2;
 
     //! Allocate Memory
     float* vec = (float*) fftwf_malloc(size * sizeof(float));
@@ -1065,7 +1139,7 @@ void dct_2d_inverse(
 
     //! Getting the result + normalization
     const float coef = 1.0f / (float)(kHW * 2);
-	for (unsigned k = 0; k < group_3D_table.size(); k++)
+    for (unsigned k = 0; k < group_3D_table.size(); k++)
         group_3D_table[k] = coef * vec[k];
 
     //! Free Memory
@@ -1073,11 +1147,11 @@ void dct_2d_inverse(
 }
 
 void bior_2d_inverse(
-    vector<float> &group_3D_table
-,   const unsigned kHW
-,   vector<float> const& lpr
-,   vector<float> const& hpr
-){
+    vector<float> &group_3D_table,
+    const unsigned kHW,
+    vector<float> const& lpr,
+    vector<float> const& hpr
+    ){
     //! Declarations
     const unsigned kHW_2 = kHW * kHW;
     const unsigned N = group_3D_table.size() / kHW_2;
@@ -1103,19 +1177,23 @@ void bior_2d_inverse(
  * @return none.
  **/
 void preProcess(
-    vector<float> &kaiserWindow
-,   vector<float> &coef_norm
-,   vector<float> &coef_norm_inv
-,   const unsigned kHW
-){
+    vector<float> &kaiserWindow,
+    vector<float> &coef_norm,
+    vector<float> &coef_norm_inv,
+    const unsigned kHW
+    ){
     //! Kaiser Window coefficients
     if (kHW == 8)
     {
         //! First quarter of the matrix
-        kaiserWindow[0 + kHW * 0] = 0.1924f; kaiserWindow[0 + kHW * 1] = 0.2989f; kaiserWindow[0 + kHW * 2] = 0.3846f; kaiserWindow[0 + kHW * 3] = 0.4325f;
-        kaiserWindow[1 + kHW * 0] = 0.2989f; kaiserWindow[1 + kHW * 1] = 0.4642f; kaiserWindow[1 + kHW * 2] = 0.5974f; kaiserWindow[1 + kHW * 3] = 0.6717f;
-        kaiserWindow[2 + kHW * 0] = 0.3846f; kaiserWindow[2 + kHW * 1] = 0.5974f; kaiserWindow[2 + kHW * 2] = 0.7688f; kaiserWindow[2 + kHW * 3] = 0.8644f;
-        kaiserWindow[3 + kHW * 0] = 0.4325f; kaiserWindow[3 + kHW * 1] = 0.6717f; kaiserWindow[3 + kHW * 2] = 0.8644f; kaiserWindow[3 + kHW * 3] = 0.9718f;
+        kaiserWindow[0 + kHW * 0] = 0.1924f; kaiserWindow[0 + kHW * 1] = 0.2989f;
+        kaiserWindow[0 + kHW * 2] = 0.3846f; kaiserWindow[0 + kHW * 3] = 0.4325f;
+        kaiserWindow[1 + kHW * 0] = 0.2989f; kaiserWindow[1 + kHW * 1] = 0.4642f;
+        kaiserWindow[1 + kHW * 2] = 0.5974f; kaiserWindow[1 + kHW * 3] = 0.6717f;
+        kaiserWindow[2 + kHW * 0] = 0.3846f; kaiserWindow[2 + kHW * 1] = 0.5974f;
+        kaiserWindow[2 + kHW * 2] = 0.7688f; kaiserWindow[2 + kHW * 3] = 0.8644f;
+        kaiserWindow[3 + kHW * 0] = 0.4325f; kaiserWindow[3 + kHW * 1] = 0.6717f;
+        kaiserWindow[3 + kHW * 2] = 0.8644f; kaiserWindow[3 + kHW * 3] = 0.9718f;
 
         //! Completing the rest of the matrix by symmetry
         for(unsigned i = 0; i < kHW / 2; i++)
@@ -1129,12 +1207,24 @@ void preProcess(
     else if (kHW == 12)
     {
         //! First quarter of the matrix
-        kaiserWindow[0 + kHW * 0] = 0.1924f; kaiserWindow[0 + kHW * 1] = 0.2615f; kaiserWindow[0 + kHW * 2] = 0.3251f; kaiserWindow[0 + kHW * 3] = 0.3782f;  kaiserWindow[0 + kHW * 4] = 0.4163f;  kaiserWindow[0 + kHW * 5] = 0.4362f;
-        kaiserWindow[1 + kHW * 0] = 0.2615f; kaiserWindow[1 + kHW * 1] = 0.3554f; kaiserWindow[1 + kHW * 2] = 0.4419f; kaiserWindow[1 + kHW * 3] = 0.5139f;  kaiserWindow[1 + kHW * 4] = 0.5657f;  kaiserWindow[1 + kHW * 5] = 0.5927f;
-        kaiserWindow[2 + kHW * 0] = 0.3251f; kaiserWindow[2 + kHW * 1] = 0.4419f; kaiserWindow[2 + kHW * 2] = 0.5494f; kaiserWindow[2 + kHW * 3] = 0.6390f;  kaiserWindow[2 + kHW * 4] = 0.7033f;  kaiserWindow[2 + kHW * 5] = 0.7369f;
-        kaiserWindow[3 + kHW * 0] = 0.3782f; kaiserWindow[3 + kHW * 1] = 0.5139f; kaiserWindow[3 + kHW * 2] = 0.6390f; kaiserWindow[3 + kHW * 3] = 0.7433f;  kaiserWindow[3 + kHW * 4] = 0.8181f;  kaiserWindow[3 + kHW * 5] = 0.8572f;
-        kaiserWindow[4 + kHW * 0] = 0.4163f; kaiserWindow[4 + kHW * 1] = 0.5657f; kaiserWindow[4 + kHW * 2] = 0.7033f; kaiserWindow[4 + kHW * 3] = 0.8181f;  kaiserWindow[4 + kHW * 4] = 0.9005f;  kaiserWindow[4 + kHW * 5] = 0.9435f;
-        kaiserWindow[5 + kHW * 0] = 0.4362f; kaiserWindow[5 + kHW * 1] = 0.5927f; kaiserWindow[5 + kHW * 2] = 0.7369f; kaiserWindow[5 + kHW * 3] = 0.8572f;  kaiserWindow[5 + kHW * 4] = 0.9435f;  kaiserWindow[5 + kHW * 5] = 0.9885f;
+        kaiserWindow[0 + kHW * 0] = 0.1924f; kaiserWindow[0 + kHW * 1] = 0.2615f;
+        kaiserWindow[0 + kHW * 2] = 0.3251f; kaiserWindow[0 + kHW * 3] = 0.3782f;
+        kaiserWindow[0 + kHW * 4] = 0.4163f; kaiserWindow[0 + kHW * 5] = 0.4362f;
+        kaiserWindow[1 + kHW * 0] = 0.2615f; kaiserWindow[1 + kHW * 1] = 0.3554f;
+        kaiserWindow[1 + kHW * 2] = 0.4419f; kaiserWindow[1 + kHW * 3] = 0.5139f;
+        kaiserWindow[1 + kHW * 4] = 0.5657f; kaiserWindow[1 + kHW * 5] = 0.5927f;
+        kaiserWindow[2 + kHW * 0] = 0.3251f; kaiserWindow[2 + kHW * 1] = 0.4419f;
+        kaiserWindow[2 + kHW * 2] = 0.5494f; kaiserWindow[2 + kHW * 3] = 0.6390f;
+        kaiserWindow[2 + kHW * 4] = 0.7033f; kaiserWindow[2 + kHW * 5] = 0.7369f;
+        kaiserWindow[3 + kHW * 0] = 0.3782f; kaiserWindow[3 + kHW * 1] = 0.5139f;
+        kaiserWindow[3 + kHW * 2] = 0.6390f; kaiserWindow[3 + kHW * 3] = 0.7433f;
+        kaiserWindow[3 + kHW * 4] = 0.8181f; kaiserWindow[3 + kHW * 5] = 0.8572f;
+        kaiserWindow[4 + kHW * 0] = 0.4163f; kaiserWindow[4 + kHW * 1] = 0.5657f;
+        kaiserWindow[4 + kHW * 2] = 0.7033f; kaiserWindow[4 + kHW * 3] = 0.8181f;
+        kaiserWindow[4 + kHW * 4] = 0.9005f; kaiserWindow[4 + kHW * 5] = 0.9435f;
+        kaiserWindow[5 + kHW * 0] = 0.4362f; kaiserWindow[5 + kHW * 1] = 0.5927f;
+        kaiserWindow[5 + kHW * 2] = 0.7369f; kaiserWindow[5 + kHW * 3] = 0.8572f;
+        kaiserWindow[5 + kHW * 4] = 0.9435f; kaiserWindow[5 + kHW * 5] = 0.9885f;
 
         //! Completing the rest of the matrix by symmetry
         for(unsigned i = 0; i < kHW / 2; i++)
@@ -1146,9 +1236,10 @@ void preProcess(
                 kaiserWindow[i + kHW * j] = kaiserWindow[kHW - i - 1 + kHW * j];
     }
     else
+    {
         for (unsigned k = 0; k < kHW * kHW; k++)
             kaiserWindow[k] = 1.0f;
-
+    }
     //! Coefficient of normalization for DCT II and DCT II inverse
     const float coef = 0.5f / ((float) (kHW));
     for (unsigned i = 0; i < kHW; i++)
@@ -1188,16 +1279,16 @@ void preProcess(
  * @return none.
  **/
 void precompute_BM(
-    vector<vector<unsigned> > &patch_table
-,   const vector<float> &img
-,   const unsigned width
-,   const unsigned height
-,   const unsigned kHW
-,   const unsigned NHW
-,   const unsigned nHW
-,   const unsigned pHW
-,   const float    tauMatch
-){
+    vector<vector<unsigned> > &patch_table,
+    const vector<float> &img,
+    const unsigned width,
+    const unsigned height,
+    const unsigned kHW,
+    const unsigned NHW,
+    const unsigned nHW,
+    const unsigned pHW,
+    const float    tauMatch
+    ){
     //! Declarations
     const unsigned Ns = 2 * nHW + 1;
     const float threshold = tauMatch * kHW * kHW;
@@ -1263,7 +1354,7 @@ void precompute_BM(
                 for (unsigned j = nHW + 1; j < width - nHW; j++, k++, pq++)
                 {
                     sum_table[ddk][k] =
-                          sum_table[ddk][k - 1]
+                        sum_table[ddk][k - 1]
                         + sum_table[ddk][k - width]
                         - sum_table[ddk][k - 1 - width]
                         + diff_table[pq]
@@ -1295,14 +1386,14 @@ void precompute_BM(
                 for (int di = 0; di <= (int) nHW; di++)
                     if (sum_table[dj + nHW + di * Ns][k_r] < threshold)
                         table_distance.push_back(make_pair(
-                                    sum_table[dj + nHW + di * Ns][k_r]
-                                  , k_r + di * width + dj));
+                                sum_table[dj + nHW + di * Ns][k_r]
+                                , k_r + di * width + dj));
 
                 for (int di = - (int) nHW; di < 0; di++)
-                    if (sum_table[-dj + nHW + (-di) * Ns][k_r] < threshold)
+                    if (sum_table[-dj + nHW + (-di) * Ns][k_r + di * width + dj] < threshold)
                         table_distance.push_back(make_pair(
-                                    sum_table[-dj + nHW + (-di) * Ns][k_r + di * width + dj]
-                                  , k_r + di * width + dj));
+                                sum_table[-dj + nHW + (-di) * Ns][k_r + di * width + dj]
+                                , k_r + di * width + dj));
             }
 
             //! We need a power of 2 for the number of similar patches,
@@ -1311,24 +1402,26 @@ void precompute_BM(
             const unsigned nSx_r = (NHW > table_distance.size() ?
                                     closest_power_of_2(table_distance.size()) : NHW);
 
-			//! To avoid problem
-			if (nSx_r == 1 && table_distance.size() == 0)
-			{
-				cout << "problem size" << endl;
-				table_distance.push_back(make_pair(0, k_r));
-			}
+            //! To avoid problem
+            if (nSx_r == 1 && table_distance.size() == 0)
+            {
+                //				cout << "problem size" << endl;
+                table_distance.push_back(make_pair(0, k_r));
+            }
 
             //! Sort patches according to their distance to the reference one
             partial_sort(table_distance.begin(), table_distance.begin() + nSx_r,
-                                            table_distance.end(), ComparaisonFirst);
+                         table_distance.end(), ComparaisonFirst);
 
             //! Keep a maximum of NHW similar patches
             for (unsigned n = 0; n < nSx_r; n++)
                 patch_table[k_r].push_back(table_distance[n].second);
 
-			//! To avoid problem
-			if (nSx_r == 1)
-				patch_table[k_r].push_back(table_distance[0].second);
+#ifdef MTRICK
+            //! To avoid problem
+            if (nSx_r == 1)
+                patch_table[k_r].push_back(table_distance[0].second);
+#endif
         }
     }
 }
@@ -1347,12 +1440,12 @@ void precompute_BM(
  * @return none.
  **/
 void sd_weighting(
-    std::vector<float> const& group_3D
-,   const unsigned nSx_r
-,   const unsigned kHW
-,   const unsigned chnls
-,   std::vector<float> &weight_table
-){
+    std::vector<float> const& group_3D,
+    const unsigned nSx_r,
+    const unsigned kHW,
+    const unsigned chnls,
+    std::vector<float> &weight_table
+    ){
     const unsigned N = nSx_r * kHW * kHW;
 
     for (unsigned c = 0; c < chnls; c++)
@@ -1375,9 +1468,3 @@ void sd_weighting(
         weight_table[c] = (res > 0.0f ? 1.0f / sqrtf(res) : 0.0f);
     }
 }
-
-
-
-
-
-
