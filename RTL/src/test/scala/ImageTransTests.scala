@@ -2,42 +2,44 @@ package imageTrans
 
 import org.scalatest._
 
-import java.io._
-import java.nio.file.{Files, Paths}
-
-class ImageTransformDriver (
-  width: Int,
-  hight: Int,
-  imgPath: String,
-  resPath: String
-) {
+class ImageTransformDriver(
+                            width: Int,
+                            hight: Int,
+                            imgPath: String,
+                            resPath: String
+                          ) {
 
   /* Example of accessing bytewis ins scala */
   def exampleBytewise: Boolean = {
-    val imgBytes: Array[Byte] = Files.readAllBytes(Paths.get(imgPath))
-    val ENTRY_SIZE = 6 // 2 BYTES_PER_COLOR * 3 ??  R + G + B
-    val npArray = for(i <- 0 until width*hight) yield {
-      val getR = imgBytes.slice(i*ENTRY_SIZE + 0, i*ENTRY_SIZE + 0 + 2)
-      val getG = imgBytes.slice(i*ENTRY_SIZE + 2, i*ENTRY_SIZE + 2 + 2)
-      val getB = imgBytes.slice(i*ENTRY_SIZE + 4, i*ENTRY_SIZE + 4 + 2)
-      Array(getR ++ getG ++ getB)
-    }
-    print("Did something useless and buggy")
-    return true
+    val stream = getClass.getResourceAsStream(imgPath)
+    val imgBytes = Stream.continually(stream.read()).takeWhile(_ != -1).map(_.toByte).toArray
+
+    val ENTRY_SIZE = 3 // BYTES_PER_COLOR * 3 ??  R + G + B
+
+    val npArray = (for (i <- 0 until width * hight) yield {
+      val getR = imgBytes(i * ENTRY_SIZE)
+      val getG = imgBytes(i * ENTRY_SIZE + 1)
+      val getB = imgBytes(i * ENTRY_SIZE + 2)
+      Array(0.toByte, getG, getB)
+    }).flatten.toArray
+
+    val stream_res = getClass.getResourceAsStream(resPath)
+    val imgBytes_res = Stream.continually(stream_res.read()).takeWhile(_ != -1).map(_.toByte).toArray
+    
+    return npArray.deep == imgBytes_res.deep
   }
 }
-
 
 
 class ImageProcSpec extends FlatSpec with Matchers {
 
   "An Image" should "be filtered by Red" in {
-    val imgDriver = new ImageTransformDriver (
-      240,
-      333,
-      "/path/to/your/image",
-      "/path/to/your/imageTranformed"
-      )
+    val imgDriver = new ImageTransformDriver(
+      480,
+      320,
+      "/frame",
+      "/frame_no_red"
+    )
     assert(imgDriver.exampleBytewise)
   }
 }
