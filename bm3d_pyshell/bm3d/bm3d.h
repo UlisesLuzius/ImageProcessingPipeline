@@ -11,6 +11,17 @@
 #define _NO_OPENMP 1
 #endif
 
+#define SQRT2     1.414213562373095
+#define SQRT2_INV 0.7071067811865475
+#define YUV       0
+#define YCBCR     1
+#define OPP       2
+#define RGB       3
+#define DCT       4
+#define BIOR      5
+#define HADAMARD  6
+#define NONE      7
+
 /** ------------------ **/
 /** - Main functions - **/
 /** ------------------ **/

@@ -9,15 +9,6 @@
 #include "bm3d.h"
 #include "utilities.h"
 
-#define YUV       0
-#define YCBCR     1
-#define OPP       2
-#define RGB       3
-#define DCT       4
-#define BIOR      5
-#define HADAMARD  6
-#define NONE      7
-
 using namespace std;
 
 // c: pointer to original argc

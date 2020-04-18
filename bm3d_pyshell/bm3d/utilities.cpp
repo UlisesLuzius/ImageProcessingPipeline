@@ -34,60 +34,60 @@ extern "C"{
 #define OPP       2
 #define RGB       3
 
- using namespace std;
+using namespace std;
 
- /**
-  * @brief Load image, check the number of channels
-  *
-  * @param name : name of the image to read
-  * @param img : vector which will contain the image : R, G and B concatenated
-  * @param width, height, chnls : size of the image
-  *
-  * @return EXIT_SUCCESS if the image has been loaded, EXIT_FAILURE otherwise
-  **/
+/**
+ * @brief Load image, check the number of channels
+ *
+ * @param name : name of the image to read
+ * @param img : vector which will contain the image : R, G and B concatenated
+ * @param width, height, chnls : size of the image
+ *
+ * @return EXIT_SUCCESS if the image has been loaded, EXIT_FAILURE otherwise
+ **/
 int load_image(
     char* name
-,   vector<float> &img
-,   unsigned * width
-,   unsigned * height
-,   unsigned * chnls
-){
+    ,   vector<float> &img
+    ,   unsigned * width
+    ,   unsigned * height
+    ,   unsigned * chnls
+    ){
     //! read input image
-	cout << endl << "Read input image...";
-	size_t h, w, c;
-	float *tmp = NULL;
-   int ih, iw, ic;
+    cout << endl << "Read input image...";
+    size_t h, w, c;
+    float *tmp = NULL;
+    int ih, iw, ic;
 
-   tmp = iio_read_image_float_split(name, &iw, &ih, &ic);
-   w=iw; h=ih; c=ic;
-	if (!tmp)
-	{
-		cout << "error :: " << name << " not found or not a correct image" << endl;
-		return EXIT_FAILURE;
-	}
-	cout << "done." << endl;
+    tmp = iio_read_image_float_split(name, &iw, &ih, &ic);
+    w=iw; h=ih; c=ic;
+    if (!tmp)
+    {
+        cout << "error :: " << name << " not found or not a correct image" << endl;
+        return EXIT_FAILURE;
+    }
+    cout << "done." << endl;
 
-	//! test if image is really a color image and exclude the alpha channel
-	if (c > 2)
-	{
-	    unsigned k = 0;
-	    while (k < w * h && tmp[k] == tmp[w * h + k] && tmp[k] == tmp[2 * w * h + k])
+    //! test if image is really a color image and exclude the alpha channel
+    if (c > 2)
+    {
+        unsigned k = 0;
+        while (k < w * h && tmp[k] == tmp[w * h + k] && tmp[k] == tmp[2 * w * h + k])
             k++;
         c = (k == w * h ? 1 : 3);
-	}
+    }
 
-	//! Some image informations
-	cout << "image size :" << endl;
-	cout << " - width          = " << w << endl;
-	cout << " - height         = " << h << endl;
-	cout << " - nb of channels = " << c << endl;
+    //! Some image informations
+    cout << "image size :" << endl;
+    cout << " - width          = " << w << endl;
+    cout << " - height         = " << h << endl;
+    cout << " - nb of channels = " << c << endl;
 
-	//! Initializations
-	*width  = w;
-	*height = h;
-	*chnls  = c;
-	img.resize(w * h * c);
-	for (unsigned k = 0; k < w * h * c; k++)
+    //! Initializations
+    *width  = w;
+    *height = h;
+    *chnls  = c;
+    img.resize(w * h * c);
+    for (unsigned k = 0; k < w * h * c; k++)
         img[k] = tmp[k];
 
     return EXIT_SUCCESS;

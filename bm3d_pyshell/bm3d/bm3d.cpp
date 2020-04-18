@@ -26,17 +26,6 @@
 #include "utilities.h"
 #include "lib_transforms.h"
 
-#define SQRT2     1.414213562373095
-#define SQRT2_INV 0.7071067811865475
-#define YUV       0
-#define YCBCR     1
-#define OPP       2
-#define RGB       3
-#define DCT       4
-#define BIOR      5
-#define HADAMARD  6
-
-
 /*
  * In order to reproduce the original BM3D the DC coefficients are
  * thresholded (DCTHRESH uncommented) and are filtered using Wiener
@@ -105,6 +94,22 @@ int run_bm3d (
     const unsigned nb_threads,
     const bool verbose
     ){
+    if (verbose) {
+        cout << "BM3D ARGS:"
+            << sigma
+            << "," << width
+            << "," << height
+            << "," << chnls
+            << "," << useSD_h
+            << "," << useSD_w
+            << "," << tau_2D_hard
+            << "," << tau_2D_wien
+            << "," << color_space
+            << "," << patch_size
+            << "," << nb_threads
+            << "," << verbose << endl;
+    }
+
     //! Parameters
     const unsigned nHard = 16; //! Half size of the search window
     const unsigned nWien = 16; //! Half size of the search window
