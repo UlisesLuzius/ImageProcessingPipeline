@@ -203,23 +203,24 @@ def simple_bm3d(img : np.ndarray):
     cdef unsigned height = img_shape[0]
     cdef unsigned width = img_shape[1]
     cdef unsigned chnls = img_shape[2]
+    cdef unsigned size = img.size
     cdef int patch_size = 0
-    cdef int nb_threads = 0
+    cdef int nb_threads = 1
 
-    print("Image of dimentions H*W*C={}*{}*{}"
-          .format(height, width, chnls))
-    img = img.transpose(2, 1, 0)
-    print("Image tranposed of dimentions {}*{}*{}"
-          .format(img.shape[0], img.shape[1], img.shape[2]))
-    img = img.flatten()
+    print("Image of dimentions H*W*C={}*{}*{}={}"
+          .format(height, width, chnls, size))
+    # img = img.transpose(2, 1, 0)
+    print("Image tranposed of dimentions {}*{}*{}={}"
+          .format(img.shape[0], img.shape[1], img.shape[2], img.size))
 
     print("Running: "
           "./bm3d SomeInputImage -useSD_wien -tau_2d_hard bior -tau_2d_wien dct -color_space rgb")
 
-    cdef np.ndarray img_vec = np.ascontiguousarray(img, dtype=np.float32) # Makes a contiguous copy of the numpy array.
+    img_vec = np.ascontiguousarray(img.flatten(), dtype=np.float32) # Makes a contiguous copy of the numpy array.
 
     cdef vector[float] img_noisy = img_vec
     cdef vector[float] img_basic, img_denoised
+    print(img_vec.shape)
     ret = run_bm3d(10, img_noisy, img_basic, img_denoised,
                    width, height, chnls, useSD_1, useSD_2,
                    tau_2D_hard, tau_2D_wien,
@@ -230,11 +231,16 @@ def simple_bm3d(img : np.ndarray):
         raise Exception("Executing the C function `run_bmd3d` returned "
                         "with an error: {%d}".format(ret))
 
-    cdef np.ndarray img_res = img_denoised
-    img_res.reshape((img_shape[2], img_shape[1], img_shape[0])
-                         ).transpose((2, 1, 0))
 
-    res = img_denoised
-    return res
+    img_res = np.array(img_denoised, dtype=np.float32)
+    print(img_res.shape)
 
+    img_res = np.reshape(img_res, (img_shape[0], img_shape[1], img_shape[2]))
+    print(img_res.shape)
+    # img_res = img_res.transpose(2, 1, 0)
+    print(img_res.shape)
 
+    print("Image result {}*{}*{}={}"
+          .format(img_res.shape[0], img_res.shape[1], img_res.shape[2], img_res.size))
+
+    return img_res

@@ -1,5 +1,5 @@
-pybm3d/*.cpp
-pybm3d/*.c
+bm3d_pyshell/*.cpp
+bm3d_pyshell/*.c
 *.png
 
 # Distribution / packaging
