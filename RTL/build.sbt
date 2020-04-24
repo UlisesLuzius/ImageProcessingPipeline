@@ -40,9 +40,14 @@ resolvers ++= Seq(
 )
 
 // Provide a managed dependency on X if -DXVersion="" is supplied on the command line.
-libraryDependencies += "edu.berkeley.cs" %% "chisel3" % "3.2-SNAPSHOT"
+libraryDependencies += "edu.berkeley.cs" %% "chisel3" % "3.3-SNAPSHOT"
 libraryDependencies += "edu.berkeley.cs" %% "chiseltest" % "0.2-SNAPSHOT"
 
 scalacOptions ++= scalacOptionsVersion(scalaVersion.value)
 
 javacOptions ++= javacOptionsVersion(scalaVersion.value)
+
+scalacOptions ++= Seq("-deprecation", "-feature")
+scalacOptions += "-language:reflectiveCalls"
+
+fork in run := true
