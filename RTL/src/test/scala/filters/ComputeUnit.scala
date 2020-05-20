@@ -61,27 +61,30 @@ class StreamSquaresDriver(duv: StreamSquares) {
     val bot     = duv.io.squares.bot.peek.litValue.toInt
     val topLeft = duv.io.squares.topleft.peek.litValue.toInt
     val botLeft = duv.io.squares.botleft.peek.litValue.toInt
+    val topRowOffst = duv.kSize*duv.width
+    val leftColOffst = duv.kSize - 1
     assert(bot == pixelArray(currPixel))
     if(hasTop) {
-      assert(top == pixelArray(currPixel - duv.width))
+      print(s"Curr pixel: ${currPixel}")
+      assert(top == pixelArray(currPixel - topRowOffst))
 
       if(hasLeft) {
-        assert(topLeft == pixelArray(currPixel - duv.width - (duv.kSize - 1)))
+        assert(topLeft == pixelArray(currPixel - topRowOffst - leftColOffst))
       }
     } else {
       assert(top == 0)
       assert(topLeft == 0)
     }
     if(hasLeft) {
-      assert(botLeft == pixelArray(currPixel - (duv.kSize - 1)))
+      assert(botLeft == pixelArray(currPixel - leftColOffst))
     }
   }
 
-  def runDUV: Unit = {
+  def runDUV(rowDelay: Int, useAssert : Boolean): Unit = {
     val pixelArray: Array[Int] = (for (
       i <- 0 until duv.height;
       j <- 0 until duv.width
-    ) yield (j+1)).toArray
+    ) yield (j + i*duv.width)).toArray
 
     duv.io.runRow.poke(true.B)
     for (
@@ -94,10 +97,10 @@ class StreamSquaresDriver(duv: StreamSquares) {
       val currSquare = pixelArray(currPixel)
       duv.io.diffSquared.poke(currSquare.S)
       duv.clock.step()
-      assertOutput(pixelArray, currPixel, hasTop, hasLeft)
+      if(useAssert) assertOutput(pixelArray, currPixel, hasTop, hasLeft)
       if(col == (duv.width - 1)) {
         duv.io.runRow.poke(false.B)
-        duv.clock.step(4)
+        duv.clock.step(rowDelay)
         duv.io.runRow.poke(true.B)
       }
     }
@@ -120,8 +123,23 @@ class StreamTester extends FlatSpec with ChiselScalatestTester {
   it should "return verify kSize dependencies when streaming squares" in {
     test(new StreamSquares(4, 15, 10)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
-      val img = duvDrv.runDUV
+      duvDrv.runDUV(2, true)
     }
   }
+
+  it should "verify minimal rowDelay" in {
+    test(new StreamSquares(4, 15, 10)).withAnnotations(annos) { dut =>
+      val duvDrv = new StreamSquaresDriver(dut)
+      duvDrv.runDUV(2, true)
+      duvDrv.runDUV(1, true)
+    }
+  }
+
+  it should "verify real 720p" in {
+    test(new StreamSquares(8, 40, 720)).withAnnotations(annos) { dut =>
+      val duvDrv = new StreamSquaresDriver(dut)
+      duvDrv.runDUV(1, true)
+    }
+  } 
 }
 

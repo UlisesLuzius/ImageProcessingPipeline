@@ -58,7 +58,7 @@ class StreamSquares(
   val sizeBRAM = java.lang.Math.ceil(rowNumber) * 1024
   val rowBuffer = Module(new BRAM()(new BRAMConfig(
     2, 9, sizeBRAM.toInt, "", false, true, false)))
-  val runSquares = RegNext(io.runSquares)
+  val runSquares = RegNext(io.runRow)
   val doneKernelRow = RegInit(false.B)
   val doneKernelCol = RegInit(false.B)
   val (currWritePixel, bufferDone) = Counter(io.runRow, width*kSize)
