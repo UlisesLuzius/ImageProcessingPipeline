@@ -41,6 +41,7 @@ class StreamSquares(
 
   val io = IO(new Bundle {
     val runRow = Input(Bool())
+    val runSquares = Output(Bool())
     val diffSquared = Input(SInt(18.W))
     val squares = Output(new SquaresIO)
   })
@@ -57,6 +58,7 @@ class StreamSquares(
   val sizeBRAM = java.lang.Math.ceil(rowNumber) * 1024
   val rowBuffer = Module(new BRAM()(new BRAMConfig(
     2, 9, sizeBRAM.toInt, "", false, true, false)))
+  val runSquares = RegNext(io.runSquares)
   val doneKernelRow = RegInit(false.B)
   val doneKernelCol = RegInit(false.B)
   val (currWritePixel, bufferDone) = Counter(io.runRow, width*kSize)
@@ -101,4 +103,5 @@ class StreamSquares(
   io.squares.top := top
   io.squares.botleft := botleft
   io.squares.topleft := topleft
+  io.runSquares := runSquares
 }

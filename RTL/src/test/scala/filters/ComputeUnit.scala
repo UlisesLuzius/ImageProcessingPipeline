@@ -66,14 +66,14 @@ class StreamSquaresDriver(duv: StreamSquares) {
       assert(top == pixelArray(currPixel - duv.width))
 
       if(hasLeft) {
-        assert(topLeft == pixelArray(currPixel - duv.width - duv.kSize))
+        assert(topLeft == pixelArray(currPixel - duv.width - (duv.kSize - 1)))
       }
     } else {
       assert(top == 0)
       assert(topLeft == 0)
     }
     if(hasLeft) {
-      assert(botLeft == pixelArray(currPixel - duv.kSize))
+      assert(botLeft == pixelArray(currPixel - (duv.kSize - 1)))
     }
   }
 
@@ -94,7 +94,7 @@ class StreamSquaresDriver(duv: StreamSquares) {
       val currSquare = pixelArray(currPixel)
       duv.io.diffSquared.poke(currSquare.S)
       duv.clock.step()
-      //assertOutput(pixelArray, currPixel, hasTop, hasLeft)
+      assertOutput(pixelArray, currPixel, hasTop, hasLeft)
       if(col == (duv.width - 1)) {
         duv.io.runRow.poke(false.B)
         duv.clock.step(4)
