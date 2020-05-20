@@ -128,7 +128,7 @@ class FilterTester extends FlatSpec with ChiselScalatestTester {
 
   val annos = Seq(
     VerilatorBackendAnnotation,
-    TargetDirAnnotation("test"),
+    TargetDirAnnotation("test/Filter"),
     WriteVcdAnnotation)
 
   behavior of "Filter RGB of a picture"

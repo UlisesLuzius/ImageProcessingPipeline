@@ -12,48 +12,55 @@ import modules._
 // kHard = patch size
 // norm2(patchRef - patchOther)^2 < tHard*(kHard^2) = tresh
 class MatchPatch extends MultiIOModule {
+  val cmdStop :: cmdStart :: Nil = Enum(2)
   val io = IO(new Bundle {
-    val pic = Decoupled(new Bundle {
-      val reference = SInt(8.W)
-      val current = SInt(8.W)
+    val pixel = Decoupled(new Bundle {
+      val base = UInt(8.W)
+      val curr = UInt(8.W)
     })
 
     // Res
-    val matched = Decoupled(Bool())
+    val matched = Decoupled(new Bundle {
+      val isMatched = Bool()
+      val pDist = SInt(16.W)
+    })
 
     // Settings 
     val thresh = Input(SInt(16.W)) // thresh - 1
     val size = Input(UInt(8.W))  // kHard*kHard - 1
-    val start = Input(Bool())
-    val busy = Output(Bool())
+    val cmd = Decoupled(cmdStart.cloneType)
   })
 
   val thresh = RegNext(io.thresh)
 
+
   val s_Idle :: s_Matching :: s_Done :: s_WaitConsume :: Nil = Enum(4)
   val state = RegInit(s_Idle)
   val isMatched = RegInit(false.B)
+  val pDist = RegInit(0.S(16.W))
 
   val currPixel = RegInit(0.U(8.W))
-  val squareAcc = Module(new SquareSub(16, 40))
+  val squareAcc = Module(new SquareSub(16, 40, true))
 
   val blockDone = WireInit(currPixel === io.size)
   val totalSum = WireInit(squareAcc.io.sumSquares)
 
-  squareAcc.io.ele := io.pic.bits.reference.asSInt
-  squareAcc.io.sub := io.pic.bits.current.asSInt
-  squareAcc.io.ce := io.pic.fire
+  squareAcc.io.ele := io.pixel.bits.base.asSInt
+  squareAcc.io.sub := io.pixel.bits.curr.asSInt
+  squareAcc.io.ce := io.pixel.fire
   squareAcc.io.resetSum := false.B
 
   switch(state) {
     is(s_Idle) {
-      when(io.start) {
-        state := s_Matching
-        currPixel := 0.U
+      when(io.cmd.fire) {
+        when(io.cmd.bits === cmdStart) {
+          state := s_Matching
+          currPixel := 0.U
+        }
       }
     }
     is(s_Matching) {
-      when(io.pic.fire) {
+      when(io.pixel.fire) {
         currPixel := currPixel + 1.U
         when(blockDone) { // Patch Done
           state := s_Done
@@ -66,6 +73,7 @@ class MatchPatch extends MultiIOModule {
       }
     }
     is(s_Done) {
+      pDist := totalSum
       isMatched := (totalSum <= thresh)
       state := s_WaitConsume
     }
@@ -77,8 +85,9 @@ class MatchPatch extends MultiIOModule {
     }
   }
 
-  io.busy := state =/= s_Idle
-  io.pic.ready := state === s_Matching
+  io.cmd.ready := state =/= s_Idle
+  io.pixel.ready := state === s_Matching
   io.matched.valid := state === s_WaitConsume
-  io.matched.bits := isMatched
+  io.matched.bits.isMatched := isMatched
+  io.matched.bits.pDist := isMatched
 }

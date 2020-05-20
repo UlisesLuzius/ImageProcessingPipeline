@@ -2,7 +2,7 @@ package imageTrans
 
 import org.scalatest._
 
-class ImageTransformDriver(hight: Int, width: Int) {
+class ImageTransformDriver(val hight: Int, val width: Int) {
 
   def getPicStream(path:String) = getClass.getResourceAsStream(path)
   
