@@ -65,7 +65,6 @@ class StreamSquaresDriver(duv: StreamSquares) {
     val leftColOffst = duv.kSize - 1
     assert(bot == pixelArray(currPixel))
     if(hasTop) {
-      print(s"Curr pixel: ${currPixel}")
       assert(top == pixelArray(currPixel - topRowOffst))
 
       if(hasLeft) {
@@ -120,26 +119,37 @@ class StreamTester extends FlatSpec with ChiselScalatestTester {
 
   behavior of "duv RGB of a picture"
 
+  /*
   it should "return verify kSize dependencies when streaming squares" in {
     test(new StreamSquares(4, 15, 10)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
-      duvDrv.runDUV(2, true)
+      duvDrv.runDUV(3, true)
     }
   }
+  // */
 
-  it should "verify minimal rowDelay" in {
+  //*
+  it should "verify minimal rowDelay, and multiple images in a row" in {
     test(new StreamSquares(4, 15, 10)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
       duvDrv.runDUV(2, true)
       duvDrv.runDUV(1, true)
+      duvDrv.runDUV(4, true)
+      duvDrv.runDUV(2, true)
     }
   }
+  // */
 
+
+  //*
   it should "verify real 720p" in {
     test(new StreamSquares(8, 40, 720)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
-      duvDrv.runDUV(1, true)
+      duvDrv.runDUV(2, true)
     }
   } 
+  // */
+
+
 }
 

@@ -61,11 +61,12 @@ class StreamSquares(
   val runSquares = RegNext(io.runRow)
   val doneKernelRow = RegInit(false.B)
   val doneKernelCol = RegInit(false.B)
-  val (currWritePixel, bufferDone) = Counter(io.runRow, width*kSize)
-  val (currReadPixel, readBufferDone) = Counter( // Trick for BRAM delay
-    (io.runRow && doneKernelRow) || bufferDone, width*kSize)
   val (currCol, rowDone) = Counter(io.runRow, width)
   val (currRow, imgDone) = Counter(rowDone, height)
+  val (currRowKernel, startTop) = Counter(!doneKernelRow && rowDone, kSize)
+  val (currWritePixel, bufferCycleWr) = Counter(io.runRow, width*kSize)
+  val (currReadPixel, bufferCycleRd) = Counter(
+    (io.runRow && doneKernelRow && !imgDone) || startTop, width*kSize)
   val colKernelDone = currCol === (kSize-1).U
   val rowKernelDone = currRow === kSize.U
 
@@ -82,7 +83,7 @@ class StreamSquares(
   }
 
   rowBuffer.portA.EN   := true.B
-  rowBuffer.portA.WE   := io.runRow
+  rowBuffer.portA.WE   := Fill(2, io.runRow.asUInt)
   rowBuffer.portA.ADDR := currWritePixel
   rowBuffer.portA.DI   := io.diffSquared.asUInt
 
