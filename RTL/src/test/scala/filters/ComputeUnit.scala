@@ -55,14 +55,13 @@ class StreamSquaresDriver(duv: StreamSquares) {
     pixelArray: Array[Int],
     currPixel : Int,
     hasTop: Boolean,
-    hasLeft: Boolean
-  ) = {
+    hasLeft: Boolean) = {
     val top     = duv.io.squares.top.peek.litValue.toInt
     val bot     = duv.io.squares.bot.peek.litValue.toInt
     val topLeft = duv.io.squares.topleft.peek.litValue.toInt
     val botLeft = duv.io.squares.botleft.peek.litValue.toInt
     val topRowOffst = duv.kSize*duv.width
-    val leftColOffst = duv.kSize - 1
+    val leftColOffst = duv.kSize
     assert(bot == pixelArray(currPixel))
     if(hasTop) {
       assert(top == pixelArray(currPixel - topRowOffst))
@@ -109,7 +108,7 @@ class StreamSquaresDriver(duv: StreamSquares) {
 
 }
 
-class StreamTester extends FlatSpec with ChiselScalatestTester {
+class SingleStreamTester extends FlatSpec with ChiselScalatestTester {
 
   val annos = Seq(
     VerilatorBackendAnnotation
@@ -119,17 +118,17 @@ class StreamTester extends FlatSpec with ChiselScalatestTester {
 
   behavior of "duv RGB of a picture"
 
-  /*
+  //*
   it should "return verify kSize dependencies when streaming squares" in {
     test(new StreamSquares(4, 15, 10)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
-      duvDrv.runDUV(3, true)
+      duvDrv.runDUV(1, true)
     }
   }
   // */
 
   //*
-  it should "verify minimal rowDelay, and multiple images in a row" in {
+  it should "Variable rowDelay, and multiple images in a row" in {
     test(new StreamSquares(4, 15, 10)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
       duvDrv.runDUV(2, true)
@@ -142,14 +141,71 @@ class StreamTester extends FlatSpec with ChiselScalatestTester {
 
 
   //*
-  it should "verify real 720p" in {
+  it should "verify trimmed 720p" in {
     test(new StreamSquares(8, 40, 720)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamSquaresDriver(dut)
-      duvDrv.runDUV(2, true)
+      duvDrv.runDUV(1, true)
     }
   } 
   // */
+}
+
+class StreamSquaredSumDriver(duv: StreamSquaredSum) {
+
+  private def init: Unit = {
+    duv.io.diffSquared.bits.poke(0.S)
+    duv.io.diffSquared.valid.poke(false.B)
+  }
+
+  this.init
+
+  def runDUV(rowDelay: Int, useAssert : Boolean): Unit = {
+    val pixelArray: Array[Int] = (for (
+      i <- 0 until duv.height;
+      j <- 0 until duv.width
+    ) yield (j + i*duv.width)).toArray
+
+    duv.io.diffSquared.valid.poke(true.B)
+    for (
+      row <- 0 until duv.height;
+      col <- 0 until duv.width
+    ) {
+      val hasTop  = duv.kSize <= row
+      val hasLeft = duv.kSize <= col
+      val currPixel = row * duv.width + col
+      val currSquare = pixelArray(currPixel)
+      duv.io.diffSquared.bits.poke(currSquare.S)
+      duv.clock.step()
+      if(col == (duv.width - 1)) {
+        duv.io.diffSquared.valid.poke(false.B)
+        duv.clock.step(rowDelay)
+        duv.io.diffSquared.valid.poke(true.B)
+      }
+    }
+    duv.io.diffSquared.valid.poke(false.B)
+    duv.clock.step(duv.kSize*2)
+  }
 
 
+}
+
+class StreamTester extends FlatSpec with ChiselScalatestTester {
+
+  val annos = Seq(
+    VerilatorBackendAnnotation
+    ,TargetDirAnnotation("test/fullSystem")
+    ,WriteVcdAnnotation)
+    //)
+
+  behavior of "duv FullSystem"
+
+  //*
+  it should "return sum of difference" in {
+    test(new StreamSquaredSum(4, 15, 10)).withAnnotations(annos) { dut =>
+      val duvDrv = new StreamSquaredSumDriver(dut)
+      duvDrv.runDUV(1, true)
+    }
+  }
+  // */
 }
 
