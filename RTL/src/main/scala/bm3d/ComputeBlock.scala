@@ -50,13 +50,8 @@ class StreamSquares(
   })
 
   // Need to buffer kSize rows
-  private val rowNumber = {
-    val size = kSize*width/1024
-    if(size == 0) 1 else size
-  }
-  val sizeBRAM = java.lang.Math.ceil(rowNumber) * 1024
   val rowBuffer = Module(new BRAM()(new BRAMConfig(
-    2, 9, sizeBRAM.toInt, "", false, true, false)))
+    2, 9, kSize*width, "", false, true, false)))
   val runSquares = RegNext(io.runRow)
   val doneKernelRow = RegInit(false.B)
   val doneKernelCol = RegInit(false.B)
@@ -120,13 +115,8 @@ class StreamSums(
   })
 
   // Need to buffer a single row
-  private val rowNumber = {
-    val size = width/1024
-    if(size == 0) 1 else size
-  }
-  val sizeBRAM = java.lang.Math.ceil(rowNumber) * 1024
   val rowBuffer = Module(new BRAM()(new BRAMConfig(
-    4, 8, sizeBRAM.toInt, "", false, true, false)))
+    4, 8, width, "", false, true, false)))
   val (currCol, rowDone) = Counter(io.runRow, width)
   val (currRow, imgDone) = Counter(rowDone, height)
   val firstRowDone = rowDone
