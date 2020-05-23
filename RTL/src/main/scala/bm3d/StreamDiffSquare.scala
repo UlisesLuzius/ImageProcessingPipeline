@@ -30,7 +30,8 @@ class StreamDiffSquare(
   val state = RegInit(s_Buffer)
 
   val currPixel = RegInit(0.U(log2Ceil(bufferSize).W))
-  val currStartOffst = RegInit(nbWorkers.U(log2Ceil(bufferSize).W))
+  val currStartOffstInit = nbWorkers.U(log2Ceil(bufferSize).W)
+  val currStartOffst = RegInit(currStartOffstInit)
   val (nbRowBatchJumps, isLastRowBatch) = {
     if(maxBatchJumps == 1) {
       val batch = RegInit(0.U)
@@ -83,7 +84,7 @@ class StreamDiffSquare(
           currStartOffst := jumpNextRow
           when(isLastRow) {
             nbRowJumps := 0.U
-            currStartOffst := 0.U
+            currStartOffst := currStartOffstInit
           }
         }
       }
