@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.experimental._
 import chisel3.util._
 
+
 class BRAMTDP(implicit cfg: BRAMConfig) extends BlackBox(Map(
   "NB_COL"    -> cfg.NB_COL,                    // Specify number of columns (number of bytes)
   "COL_WIDTH" -> cfg.COL_WIDTH,              // Specify column width (byte width, typically 8 or 9)
@@ -311,12 +312,19 @@ class BRAMTDP(implicit cfg: BRAMConfig) extends BlackBox(Map(
 class BRAMConfig(
   val NB_COL: Int = 4,
   val COL_WIDTH: Int = 9,
-  I_RAM_DEPTH: Int = 1024,
+  NB_ELE: Int = 1024,
   val INIT_FILE: String = "",
   val writeFirst : Boolean = true,
   val isRegistered: Boolean = false, // True => 2 Cycles
   val isAXI: Boolean = false // AXI is byte addressed
 ) {
+  private val NB_ELE_PER_BRAM = 1024*4/NB_COL
+  private val nbBlocks = {
+    val size = NB_ELE/NB_ELE_PER_BRAM
+    if(size == 0) 1 else size
+  }
+  private val sizeBRAM = java.lang.Math.ceil(nbBlocks)
+  private val I_RAM_DEPTH = sizeBRAM.toInt * NB_ELE_PER_BRAM
   assert(I_RAM_DEPTH % 1024 == 0)
   assert(I_RAM_DEPTH > 0)
   val RAM_DEPTH = if(isAXI) (I_RAM_DEPTH << log2Ceil(NB_COL)) else I_RAM_DEPTH
@@ -354,6 +362,8 @@ class BRAMPort(implicit val cfg: BRAMConfig) extends Bundle {
 }
 
 class BRAM(implicit cfg: BRAMConfig) extends MultiIOModule {
+  val delay = if(cfg.isRegistered) 2 else 1
+
   val portA = IO(new BRAMPort)
   val portB = IO(new BRAMPort)
   private val bramTDP = Module(new BRAMTDP)
@@ -375,4 +385,62 @@ class BRAM(implicit cfg: BRAMConfig) extends MultiIOModule {
   bramTDP.io.regceb <> true.B
   bramTDP.io.doutb <> portB.DO
 }
+
+
+class FIFOIO(implicit val cfg: BRAMConfig) extends Bundle
+{
+  val enq = Flipped(Decoupled(UInt((cfg.NB_COL*cfg.COL_WIDTH).W)))
+  val deq = Decoupled(UInt((cfg.NB_COL*cfg.COL_WIDTH).W))
+  val flush = Input(Bool())
+}
+
+class FIFO(implicit val cfg: BRAMConfig) extends Module {
+  val bram = Module(new BRAM())
+  val outDelay = bram.delay
+
+  val io = IO(new FIFOIO)
+
+
+  val enq_ptr = RegInit(0.U(log2Ceil(cfg.RAM_DEPTH).W))
+  val deq_ptr = RegInit(0.U(log2Ceil(cfg.RAM_DEPTH).W))
+
+  val maybe_full = RegInit(false.B)
+
+  val ptr_match = WireInit(enq_ptr === deq_ptr)
+  val empty = WireInit(ptr_match && !maybe_full)
+  val full = WireInit(ptr_match && maybe_full)
+
+  val do_enq = WireInit(io.enq.valid && (!full || io.deq.ready))
+  val do_deq = WireInit(io.deq.ready && !empty)
+
+  when (do_enq) { enq_ptr := enq_ptr + 1.U }
+  when (do_deq) { deq_ptr := deq_ptr + 1.U }
+  when(do_enq =/= do_deq) {
+    maybe_full := do_enq
+  }
+
+  bram.portA.EN := true.B
+  bram.portA.WE := Fill(cfg.NB_COL, do_enq.asUInt)
+  bram.portA.ADDR := enq_ptr
+  bram.portA.DI := io.enq.bits
+
+  bram.portB.EN := do_deq.asUInt
+  bram.portB.WE := 0.U
+  bram.portB.ADDR := deq_ptr 
+  bram.portB.DI := DontCare
+  val bitsOut = bram.portB.DO
+
+  io.enq.ready := !full
+  io.deq.valid := !empty
+  io.deq.bits := bitsOut
+  when(io.flush) {
+    enq_ptr := 0.U
+    deq_ptr := 0.U
+    maybe_full := false.B
+
+    io.deq.valid := false.B
+    io.enq.ready := false.B
+  }
+}
+
 

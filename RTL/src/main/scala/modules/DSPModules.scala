@@ -5,20 +5,20 @@ import chisel3.experimental._
 import chisel3.util._
 
 class SquareSub(val SIZEIN: Int  = 16, val SIZEOUT: Int = 40, val acc : Boolean) extends Module {
+  val delay = 4 // Reg: a|b -> diff -> m -> adder
   val io = IO(new Bundle(){
     val ele = Input(SInt((SIZEIN-1).W))
     val sub = Input(SInt((SIZEIN-1).W))
     val ce = Input(Bool())
-    val resetSum = Input(Bool())
+    val resetSum = if(acc) Some(Input(Bool())) else None
     val sumSquares = Output(SInt((SIZEOUT+1).W))
   })
   private val dsp = Module(new SquareSub_infer(SIZEIN, SIZEOUT, acc))
-  dsp.io.clk <> this.clock
-  dsp.io.rst <> this.reset
+  dsp.io.clk <> this.clock.asUInt
   dsp.io.ce <> io.ce
   dsp.io.a <> io.ele
   dsp.io.b <> io.sub
-  dsp.io.sload <> !io.resetSum
+  dsp.io.sload <> !(io.resetSum.getOrElse(true.B))
   dsp.io.accum_out <> io.sumSquares
 }
 
@@ -29,7 +29,6 @@ extends BlackBox(Map(
 )) with HasBlackBoxInline {
   val io = IO(new Bundle{
     val clk = Input(Bool())
-    val rst = Input(Bool())
     val ce = Input(Bool())
     val a = Input(SInt((SIZEIN-1).W))
     val b = Input(SInt((SIZEIN-1).W))
@@ -48,12 +47,12 @@ extends BlackBox(Map(
     |    parameter SIZEIN = 16,
     |    parameter SIZEOUT = 40
     |  ) (
-    |     input clk; // clock input 
-    |     input ce;  // clock enable
+    |     input clk, // clock input 
+    |     input ce,  // clock enable
     |     input sload; // synchronous load
-    |     input signed [SIZEIN-1:0]  a; // 1st input 
-    |     input signed [SIZEIN-1:0]  b; // 2nd input 
-    |    output signed [SIZEOUT+1:0] accum_out; // accumulator output
+    |     input signed [SIZEIN-1:0]  a, // 1st input 
+    |     input signed [SIZEIN-1:0]  b, // 2nd input 
+    |    output signed [SIZEOUT+1:0] accum_out  // accumulator output
     |  );
     |
     |  // Declare registers for intermediate values
@@ -72,12 +71,12 @@ extends BlackBox(Map(
     |    // in the same cycle.
     |    old_result <= adder_out;
     |
-    |  always @(posedge <clk>)
-    |  if (<ce>) begin
+    |  always @(posedge clk)
+    |  if (ce) begin
     |    a_reg <= a;
     |    b_reg <= b;
     |    diff_reg <= a_reg - b_reg;  
-    |    m_ reg <= diff_reg * diff_reg;
+    |    m_reg <= diff_reg * diff_reg;
     |    sload_reg <= sload;
     |    // Store accumulation result into a register
     |    adder_out <= old_result + m_reg;
@@ -86,7 +85,7 @@ extends BlackBox(Map(
     |  // Output accumulation result
     |  assign accum_out = adder_out;
     |
-    |
+    | endmodule
     """.stripMargin)
   else 
     setInline("SquareSub_infer.v",
@@ -98,12 +97,12 @@ extends BlackBox(Map(
     |    parameter SIZEIN = 16,
     |    parameter SIZEOUT = 40
     |  ) (
-    |     input clk; // clock input 
-    |     input ce;  // clock enable
-    |     input sload; // synchronous load
-    |     input signed [SIZEIN-1:0]  a; // 1st input 
-    |     input signed [SIZEIN-1:0]  b; // 2nd input 
-    |    output signed [SIZEOUT+1:0] accum_out; // adder output
+    |     input clk, // clock input 
+    |     input ce,  // clock enable
+    |     input sload, // synchronous load
+    |     input signed [SIZEIN-1:0]  a, // 1st input 
+    |     input signed [SIZEIN-1:0]  b, // 2nd input 
+    |    output signed [SIZEOUT+1:0] accum_out // adder output
     |  );
     |
     |  // Declare registers for intermediate values
@@ -113,12 +112,12 @@ extends BlackBox(Map(
     |  reg signed [SIZEOUT-1:0]  adder_out;
     |  reg                       sload_reg;
     |
-    |  always @(posedge <clk>)
-    |  if (<ce>) begin
+    |  always @(posedge clk)
+    |  if (ce) begin
     |    a_reg <= a;
     |    b_reg <= b;
     |    diff_reg <= a_reg - b_reg;  
-    |    m_ reg <= diff_reg * diff_reg;
+    |    m_reg <= diff_reg * diff_reg;
     |    sload_reg <= sload;
     |    // Store adder result into a register
     |    adder_out <= m_reg;
@@ -127,7 +126,7 @@ extends BlackBox(Map(
     |  // Output adder result
     |  assign accum_out = adder_out;
     |
-    |
+    | endmodule
     """.stripMargin)
 }
 
@@ -212,16 +211,16 @@ class MultAdd_3input(WIDTH: Int, bypass: Boolean = true) extends BlackBox(Map(
         | ) (
         |  input clk, // Clock
         |  input rst, // Reset
-        |  input en; // Reg enable
+        |  input en,  // Reg enable
         |  input signed [AWIDTH-1:0] a, // Multiplier input
         |  input signed [BWIDTH-1:0] b, // Mutiplier input
         |  input signed [CWIDTH-1:0] c, // Adder input
-        |  output signed [PWIDTH-1:0] p;// Result
+        |  output signed [PWIDTH-1:0] p // Result
         | );
         |
-        |  reg signed [AWIDTH-1:0] a_r, // Multiplier input
-        |  reg signed [BWIDTH-1:0] b_r, // Mutiplier input
-        |  reg signed [CWIDTH-1:0] c_r, // Adder input
+        |  reg signed [AWIDTH-1:0] a_r; // Multiplier input
+        |  reg signed [BWIDTH-1:0] b_r; // Mutiplier input
+        |  reg signed [CWIDTH-1:0] c_r; // Adder input
         |  reg signed [PWIDTH-1:0] p_r; // Result
         |
         |  always @ (posedge clk)

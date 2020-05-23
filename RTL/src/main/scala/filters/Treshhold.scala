@@ -48,7 +48,7 @@ class MatchPatch extends MultiIOModule {
   squareAcc.io.ele := io.pixel.bits.base.asSInt
   squareAcc.io.sub := io.pixel.bits.curr.asSInt
   squareAcc.io.ce := io.pixel.fire
-  squareAcc.io.resetSum := false.B
+  squareAcc.io.resetSum.get := false.B
 
   switch(state) {
     is(s_Idle) {
@@ -67,7 +67,7 @@ class MatchPatch extends MultiIOModule {
         }
         // Optimization possible
         // when(totalSum > thresh) {
-        //   squareAcc.io.resetSum := true.B
+        //   squareAcc.io.resetSum.get := true.B
         //   state := s_Unmatched
         // }
       }
@@ -79,7 +79,7 @@ class MatchPatch extends MultiIOModule {
     }
     is(s_WaitConsume) {
       when(io.matched.fire) {
-        squareAcc.io.resetSum := true.B
+        squareAcc.io.resetSum.get := true.B
         state := s_Idle
       }
     }
