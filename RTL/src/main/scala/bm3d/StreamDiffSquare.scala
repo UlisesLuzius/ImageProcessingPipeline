@@ -15,7 +15,8 @@ class StreamDiffSquare(
   assert(wSize%nbWorkers == 0)
   // Point where all the difference tables overlap
   // By symetry, we only need half of the search window
-  val bufferSize = (wSize/2)*width + wSize // Buffer till first patch with full search window
+  // Buffer till first patch with full search window
+  val bufferSize = (wSize/2)*width + (wSize/2) 
   val endBuffer = bufferSize - 1
 
 
