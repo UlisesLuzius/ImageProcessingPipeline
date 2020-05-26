@@ -39,10 +39,9 @@ class StreamDiffSquareDriver(duv: StreamDiffSquare) {
     val pixelArray: Array[Int] = (for (
       i <- 0 until rows;
       j <- 0 until duv.width
-    ) yield (j*j + i*duv.width)).toArray
+    ) yield (j)).toArray // + i*duv.width)).toArray
 
-    println("how many reads" + duv.maxBatchJumps*duv.wSize)
-    for(jump <- 0 until duv.maxBatchJumps*duv.wSize) {
+    for(jump <- 0 until duv.maxBatchJumps*(duv.wSize/2)) {
       duv.io.pixel.valid.poke(true.B)
       for (
         row <- 0 until rows;
@@ -75,11 +74,11 @@ class StreamDiffSquareTester extends FlatSpec with ChiselScalatestTester {
 
   //*
   it should "return Difference Squared of Pixels" in {
-    test(new StreamDiffSquare(4, 10, 4)).withAnnotations(annos) { dut =>
+    test(new StreamDiffSquare(8, 30, 4)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamDiffSquareDriver(dut)
-      duvDrv.runDUV(6, true)
+      duvDrv.runDUV(10, true)
 
-      duvDrv.runDUV(6, true)
+      // duvDrv.runDUV(10, true)
 
     }
   }
