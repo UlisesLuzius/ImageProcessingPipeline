@@ -5,7 +5,7 @@ import chisel3.experimental._
 import chisel3.util._
 
 class SquareSub(val SIZEIN: Int  = 16, val SIZEOUT: Int = 40, val acc : Boolean) extends Module {
-  val delay = 4 // Reg: a|b -> diff -> m -> adder
+  val delay = 3 // Reg: a|b -> diff -> m -> adder
   val io = IO(new Bundle(){
     val ele = Input(SInt((SIZEIN-1).W))
     val sub = Input(SInt((SIZEIN-1).W))
