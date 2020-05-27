@@ -12,23 +12,21 @@ class StreamDiffSquare(
   val width: Int = 720,
   val nbWorkers: Int = 2 // Nb of parallel workers
 ) extends MultiIOModule {
-  assert(wSize%nbWorkers == 0)
-  // Point where all the difference tables overlap
-  // By symetry, we only need half of the search window
-  // Buffer till first patch with full search window
-  val bufferSize = (wSize/2)*width + (wSize/2) 
-  val endBuffer = bufferSize - 1
-
-
-  val rowSize = width - wSize - 1
-  val maxBatchJumps = (wSize / nbWorkers)
-  assert(maxBatchJumps != 0)
-
   val io = IO(new Bundle {
     val pixelLast = Input(Bool())
     val pixel = Input(Valid(UInt(8.W))) // image
     val diffSquared = Output(Vec(nbWorkers, Valid(SInt(18.W))))
   })
+
+  assert(wSize%nbWorkers == 0)
+  // Point where all the difference tables overlap
+  // By symetry, we only need half of the search window
+  // Buffer till first pixel with full search window
+  val bufferSize = (wSize/2)*width + (wSize/2) 
+  val endBuffer = bufferSize - 1
+  val rowSize = width - wSize - 1
+  val maxBatchJumps = (wSize / nbWorkers)
+  assert(maxBatchJumps != 0)
 
   val rowBuffer = Module(new FIFO()(new BRAMConfig(
     1, 9, bufferSize, "", false, true, false)))

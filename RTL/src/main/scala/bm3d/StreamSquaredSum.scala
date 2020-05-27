@@ -119,13 +119,13 @@ class StreamSums(
     4, 8, width, "", false, true, false)))
   val (currCol, rowDone) = Counter(io.runRow, width)
   val (currRow, imgDone) = Counter(rowDone, height)
-  val firstRowDone = rowDone
+  val firstRowDone = RegNext(rowDone)
   val firstColDone = RegNext(io.runRow)
   val doneFirstRow = RegInit(false.B)
   val doneFirstCol = RegInit(false.B)
   val (currWritePixel, bufferCycleWr) = Counter(io.sum.valid, width)
   val (currReadPixel, bufferCycleRd) = Counter(
-    (io.runRow && doneFirstRow && !imgDone) || (io.sum.valid && rowDone), width)
+    ((io.runRow && doneFirstRow ) || (io.sum.valid && rowDone)) && !imgDone, width)
 
   when(RegNext(imgDone)) {
     doneFirstRow := false.B
@@ -150,7 +150,7 @@ class StreamSums(
   rowBuffer.portB.DI := DontCare
   val bufferSum = rowBuffer.portB.DO.asSInt
 
-  // Note, to lower compute timing, we can pre-sum here
+  // Note, to lower compute timing, we could pre-sum here
   val top = Mux(doneFirstRow, bufferSum, 0.S)
   val botshift = RegNext(io.sum.bits)
   val topshift = RegNext(top)
@@ -164,9 +164,9 @@ class StreamSums(
 
 
 class StreamSquaredSum(
-  val kSize : Int = 8, 
   val width : Int = 720, 
-  val height : Int = 1280
+  val height : Int = 1280,
+  val kSize : Int = 8
   ) extends MultiIOModule {
 
   val io = IO(new Bundle {
@@ -188,7 +188,20 @@ class StreamSquaredSum(
   getSums.io.sum.bits := sum
   getSums.io.sum.valid := getSquares.io.runSquares
 
-  io.sum.valid := RegNext(io.diffSquared.valid)
-  io.sum.bits := RegNext(sum)
+  val squaredValid = ShiftRegister(io.diffSquared.valid, 2)
 
+  val kernelDone = RegInit(false.B)
+  val colSum = RegInit(0.U(log2Ceil(width).W))
+  when(squaredValid) {
+    colSum := colSum + 1.U
+    when(colSum === (width-kSize).U) {
+      kernelDone := true.B
+    }.elsewhen(colSum === (width-1).U) {
+      kernelDone := false.B
+      colSum := 0.U
+    }
+  }
+
+  io.sum.valid := Mux(kernelDone, squaredValid, false.B)
+  io.sum.bits := RegNext(sum)
 }
