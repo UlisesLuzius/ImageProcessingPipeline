@@ -189,7 +189,7 @@ class StreamSquaredSumDriver(duv: StreamSquaredSum) {
 
 }
 
-class StreamTester extends FlatSpec with ChiselScalatestTester {
+class StreamSumTester extends FlatSpec with ChiselScalatestTester {
 
   val annos = Seq(
     VerilatorBackendAnnotation
