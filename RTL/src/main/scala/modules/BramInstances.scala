@@ -410,7 +410,7 @@ class FIFO(implicit val cfg: BRAMConfig) extends Module {
   val empty = WireInit(ptr_match && !maybe_full)
   val full = WireInit(ptr_match && maybe_full)
 
-  val do_enq = WireInit(io.enq.valid && (!full || io.deq.ready))
+  val do_enq = WireInit(io.enq.valid && !full)
   val do_deq = WireInit(io.deq.ready && !empty)
 
   when (do_enq) { enq_ptr := enq_ptr + 1.U }
@@ -463,7 +463,7 @@ class FIFOReady(implicit val cfg: BRAMConfig) extends Module {
 
   // Rising edge empty
   val firstRead = RegNext(empty) && !empty
-  val do_enq = WireInit(io.enq.valid && (!full || io.deq.ready))
+  val do_enq = WireInit(io.enq.valid && !full)
   val do_deq = WireInit((io.deq.ready && !empty) || firstRead)
 
   when (do_enq) { enq_ptr := enq_ptr + 1.U }
