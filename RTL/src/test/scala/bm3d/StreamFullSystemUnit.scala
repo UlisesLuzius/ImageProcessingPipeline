@@ -29,15 +29,33 @@ object StreamFullSystemGen extends App {
   val annotations = Seq.empty
   val arguments = Array(
     "--emit-modules", "verilog",
-    "--target-dir", "verilog")
+    "--target-dir", "verilog/fullSystem")
 
   val (width, height, kSize, wSize, nbWorkers) =
-      (720,     1280,     8,    32, 8)
+      (  720,   1280,     8,    32,        16)
 
   (new ChiselStage).execute(Array("-X", "verilog") ++ arguments, 
     ChiselGeneratorAnnotation(() => new StreamFullSystem(
       width, height, kSize, wSize, nbWorkers)) +: annotations)
 }
+
+
+// AXI wrapper to check resources utilization
+object AXIStreamFullSystemGen extends App {
+  val annotations = Seq.empty
+  val arguments = Array(
+    "--emit-modules", "verilog",
+    "--target-dir", "verilog/AxiFullSystem")
+
+  val (width, height, kSize, wSize, nbWorkers) =
+      (  720,   1280,     8,    32,        16)
+
+  (new ChiselStage).execute(Array("-X", "verilog") ++ arguments, 
+    ChiselGeneratorAnnotation(() => new AXIStreamFullSystem(
+      width, height, kSize, wSize, nbWorkers)) +: annotations)
+}
+
+
 
 
 class StreamFullSystemDriver(duv: StreamFullSystem) {
