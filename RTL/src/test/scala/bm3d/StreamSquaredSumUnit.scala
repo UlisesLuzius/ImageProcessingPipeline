@@ -189,11 +189,49 @@ class StreamSquaredSumDriver(duv: StreamSquaredSum) {
 
 }
 
+class StreamSquaredSumOptDriver(duv: StreamSquaredSumOpt) {
+
+  private def init: Unit = {
+    duv.io.diffSquared.bits.poke(0.S)
+    duv.io.diffSquared.valid.poke(false.B)
+  }
+
+  this.init
+
+  def runDUV(rowDelay: Int, useAssert : Boolean): Unit = {
+    val pixelArray: Array[Int] = (for (
+      i <- 0 until duv.height;
+      j <- 0 until duv.width
+    ) yield (1)).toArray
+
+    duv.io.diffSquared.valid.poke(true.B)
+    for (
+      row <- 0 until duv.height;
+      col <- 0 until duv.width
+    ) {
+      val hasTop  = duv.kSize <= row
+      val hasLeft = duv.kSize <= col
+      val currPixel = row * duv.width + col
+      val currSquare = pixelArray(currPixel)
+      duv.io.diffSquared.bits.poke(currSquare.S)
+      duv.clock.step()
+      if(col == (duv.width - 1)) {
+        duv.io.diffSquared.valid.poke(false.B)
+        duv.clock.step(rowDelay)
+        duv.io.diffSquared.valid.poke(true.B)
+      }
+    }
+    duv.io.diffSquared.valid.poke(false.B)
+    duv.clock.step(duv.kSize*2)
+  }
+
+
+}
 class StreamSumTester extends FlatSpec with ChiselScalatestTester {
 
   val annos = Seq(
     VerilatorBackendAnnotation
-    ,TargetDirAnnotation("test/fullSystem")
+    ,TargetDirAnnotation("test/optimized")
     ,WriteVcdAnnotation)
     //)
 
@@ -201,9 +239,9 @@ class StreamSumTester extends FlatSpec with ChiselScalatestTester {
 
   //*
   it should "return sum of difference" in {
-    test(new StreamSquaredSum(4, 15, 10)).withAnnotations(annos) { dut =>
-      val duvDrv = new StreamSquaredSumDriver(dut)
-      duvDrv.runDUV(1, true)
+    test(new StreamSquaredSumOpt(10, 10, 4)).withAnnotations(annos) { dut =>
+      val duvDrv = new StreamSquaredSumOptDriver(dut)
+      duvDrv.runDUV(4, false)
     }
   }
   // */

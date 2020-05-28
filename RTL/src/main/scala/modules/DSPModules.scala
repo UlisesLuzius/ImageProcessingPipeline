@@ -249,3 +249,69 @@ class MultAdd_3input(WIDTH: Int, bypass: Boolean = true) extends BlackBox(Map(
   }
   // */
 }
+
+class sumDSP(val SIZEIN: Int = 16, val SIZEOUT: Int = 40, val acc : Boolean) 
+extends BlackBox(Map(
+  "SIZEIN" -> SIZEIN,
+  "SIZEOUT" -> SIZEOUT
+)) with HasBlackBoxInline {
+  val io = IO(new Bundle{
+    val clk = Input(Bool())
+    val ce = Input(Bool())
+    val a = Input(SInt((SIZEIN-1).W))
+    val b = Input(SInt((SIZEIN-1).W))
+    val sload = Input(Bool())
+    val accum_out = Output(SInt((SIZEOUT+1).W))
+  })
+
+
+  setInline("sumDSP.v",
+    s"""
+    |  // This module performs subtraction of two inputs, squaring on the diff
+    |  // and then accumulation 
+    |  // This can be implemented in 1 DSP Block (Ultrascale architecture)
+    |  module SquareSub_infer #(
+    |    parameter SIZEIN = 16,
+    |    parameter SIZEOUT = 40
+    |  ) (
+    |     input clk, // clock input 
+    |     input ce,  // clock enable
+    |     input sload; // synchronous load
+    |     input signed [SIZEIN-1:0]  a, // 1st input 
+    |     input signed [SIZEIN-1:0]  b, // 2nd input 
+    |    output signed [SIZEOUT+1:0] accum_out  // accumulator output
+    |  );
+    |
+    |  // Declare registers for intermediate values
+    |  reg signed [SIZEIN-1:0]   a_reg, b_reg;   
+    |  reg signed [SIZEIN:0]     diff_reg;
+    |  reg signed [2*SIZEIN+1:0] m_reg;
+    |  reg signed [SIZEOUT-1:0]  adder_out, old_result;
+    |  reg                       sload_reg;
+    |
+    |  always @(sload_reg or adder_out)
+    |  if (sload_reg)
+    |    old_result <= 0;
+    |  else
+    |    // 'sload' is now and opens the accumulation loop.
+    |    // The accumulator takes the next multiplier output
+    |    // in the same cycle.
+    |    old_result <= adder_out;
+    |
+    |  always @(posedge clk)
+    |  if (ce) begin
+    |    a_reg <= a;
+    |    b_reg <= b;
+    |    diff_reg <= a_reg - b_reg;  
+    |    m_reg <= diff_reg * diff_reg;
+    |    sload_reg <= sload;
+    |    // Store accumulation result into a register
+    |    adder_out <= old_result + m_reg;
+    |  end
+    |
+    |  // Output accumulation result
+    |  assign accum_out = adder_out;
+    |
+    | endmodule
+    """.stripMargin)
+}

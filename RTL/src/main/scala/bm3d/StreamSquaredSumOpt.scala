@@ -8,146 +8,15 @@ import chisel3.util._
 import modules._
 
 class ComputeSumSquareOpt extends MultiIOModule {
-
   val io = IO(new Bundle {
-    val squares = Input(new Bundle {
-      val input = Input(SInt(18.W))
-      val shifted = Input(SInt(18.W))
-    })
-    val sums = Input(new Bundle{
-      val topSum = Input(SInt(32.W))
-      val left = Input(SInt(32.W))
-    })
+    val currSquare = Input(SInt(18.W))
+    val leftSquares = Input(SInt(18.W))
+    val leftSums = Input(SInt(32.W))
+    val topSquareSum = Input(SInt(32.W))
     val sum = Output(SInt(32.W))
   })
 
-  io.sum := io.sums.left + io.sums.topSum + io.squares.input + io.squares.shifted
-}
-
-class StreamSquaresOpt(
-  val kSize : Int = 8, 
-  val width : Int = 720, 
-  val height : Int = 1280
-) extends MultiIOModule {
-
-  val io = IO(new Bundle {
-    val runRow = Input(Bool())
-    val runSquares = Output(Bool())
-    val diffSquared = Input(SInt(18.W))
-    val squares = Output(new SquaresIO)
-  })
-
-  // Need to buffer kSize rows
-  val rowBuffer = Module(new BRAM()(new BRAMConfig(
-    2, 9, kSize*width, "", false, true, false)))
-  val runSquares = RegNext(io.runRow)
-  val doneKernelRow = RegInit(false.B)
-  val doneKernelCol = RegInit(false.B)
-  val (currCol, rowDone) = Counter(io.runRow, width)
-  val (currRow, imgDone) = Counter(rowDone, height)
-  val (currRowKernel, startTop) = Counter(!doneKernelRow && rowDone, kSize)
-  val (currWritePixel, bufferCycleWr) = Counter(io.runRow, width*kSize)
-  val (currReadPixel, bufferCycleRd) = Counter(
-    (io.runRow && doneKernelRow && !imgDone) || startTop, width*kSize)
-  val colKernelDone = currCol === kSize.U
-  val rowKernelDone = currRow === kSize.U
-
-  when(RegNext(imgDone)) {
-    doneKernelRow := false.B
-  }.elsewhen(rowKernelDone) {
-    doneKernelRow := true.B
-  }
-
-  when(RegNext(rowDone)) {
-    doneKernelCol := false.B
-  }.elsewhen(colKernelDone) {
-    doneKernelCol := true.B
-  }
-
-  rowBuffer.portA.EN   := true.B
-  rowBuffer.portA.WE   := Fill(2, io.runRow.asUInt)
-  rowBuffer.portA.ADDR := currWritePixel
-  rowBuffer.portA.DI   := io.diffSquared.asUInt
-
-  rowBuffer.portB.EN := io.runRow
-  rowBuffer.portB.WE := 0.U
-  rowBuffer.portB.ADDR := currReadPixel
-  rowBuffer.portB.DI := DontCare
-  val bufferPixel = rowBuffer.portB.DO.asSInt
-
-  // Note, to lower compute timing, we can pre-sum here
-  // and use DSP registers for shifting
-  val bot = RegNext(io.diffSquared)
-  val top = Mux(doneKernelRow, bufferPixel, 0.S)
-  val botshift = ShiftRegister(bot, kSize)
-  val topshift = ShiftRegister(top, kSize)
-  val botleft = Mux(doneKernelCol, botshift, 0.S)
-  val topleft = Mux(doneKernelCol, topshift, 0.S)
-
-  io.squares.bot := bot
-  io.squares.top := top
-  io.squares.botleft := botleft
-  io.squares.topleft := topleft
-  io.runSquares := runSquares
-}
-
-class StreamSumsOpt(
-  val width : Int = 720, 
-  val height : Int = 1280
-) extends MultiIOModule {
-
-  val io = IO(new Bundle {
-    val runRow = Input(Bool())
-    val sum = Input(Valid(SInt(32.W)))
-    val sums = Output(new SumsIO)
-  })
-
-  // Need to buffer a single row
-  val rowBuffer = Module(new BRAM()(new BRAMConfig(
-    4, 8, width, "", false, true, false)))
-  val (currCol, rowDone) = Counter(io.runRow, width)
-  val (currRow, imgDone) = Counter(rowDone, height)
-  val firstRowDone = RegNext(rowDone)
-  val firstColDone = RegNext(io.runRow)
-  val doneFirstRow = RegInit(false.B)
-  val doneFirstCol = RegInit(false.B)
-  val (currWritePixel, bufferCycleWr) = Counter(io.sum.valid, width)
-  val (currReadPixel, bufferCycleRd) = Counter(
-    ((io.runRow && doneFirstRow ) || (io.sum.valid && rowDone)) && !imgDone, width)
-
-  when(RegNext(imgDone)) {
-    doneFirstRow := false.B
-  }.elsewhen(firstRowDone) {
-    doneFirstRow := true.B
-  }
-
-  when(RegNext(rowDone)) {
-    doneFirstCol := false.B
-  }.elsewhen(firstColDone) {
-    doneFirstCol := true.B
-  }
-
-  rowBuffer.portA.EN   := true.B
-  rowBuffer.portA.WE   := Fill(4, io.sum.valid.asUInt)
-  rowBuffer.portA.ADDR := currWritePixel
-  rowBuffer.portA.DI   := io.sum.bits.asUInt
-
-  rowBuffer.portB.EN := io.runRow
-  rowBuffer.portB.WE := 0.U
-  rowBuffer.portB.ADDR := currReadPixel
-  rowBuffer.portB.DI := DontCare
-  val bufferSum = rowBuffer.portB.DO.asSInt
-
-  // Note, to lower compute timing, we could pre-sum here
-  val top = Mux(doneFirstRow, bufferSum, 0.S)
-  val botshift = RegNext(io.sum.bits)
-  val topshift = RegNext(top)
-  val botleft = Mux(doneFirstCol, botshift, 0.S)
-  val topleft = Mux(doneFirstCol, topshift, 0.S)
-
-  io.sums.top := top
-  io.sums.botleft := botleft
-  io.sums.topleft := topleft
+  io.sum := io.currSquare + io.topSquareSum + io.leftSums + io.leftSquares
 }
 
 
@@ -161,35 +30,83 @@ class StreamSquaredSumOpt(
     val diffSquared = Input(Valid(SInt(18.W)))
     val sum = Output(Valid(SInt(32.W)))
   })
+  // Pre-read is done, so shift input by bramDelay
+  // Also makes it easier for synthetizer
+  val diffSquared = ShiftRegister(io.diffSquared, 2)
 
-  val getSquares = Module(new StreamSquares(kSize, width, height))
-  val getSums = Module(new StreamSums(width, height))
-  val compute = Module(new ComputeSumSquare)
-  val sum = compute.io.sum
+  val compute = Module(new ComputeSumSquareOpt)
+  // Falling edge of row
+  val isRowDone = RegNext(diffSquared.valid) && !diffSquared.valid
 
-  getSquares.io.runRow := io.diffSquared.valid
-  getSums.io.runRow := io.diffSquared.valid
+  val sumBuffer = Module(new FIFOReady()(new BRAMConfig(
+    4, 8, width, "", false, true, false)))
+  val squareBuffer = Module(new FIFOReady()(new BRAMConfig(
+    2, 9, kSize*width, "", false, true, false)))
 
-  getSquares.io.diffSquared := io.diffSquared.bits
-  compute.io.squares <> getSquares.io.squares
-  compute.io.sums <> getSums.io.sums
-  getSums.io.sum.bits := sum
-  getSums.io.sum.valid := getSquares.io.runSquares
+  val (currRow, isImgDone) = Counter(isRowDone, height)
+  val currCol = RegInit(0.U(log2Ceil(kSize).W))
+  val isKernelRowDone = RegInit(false.B)
+  val isKernelColDone = RegInit(false.B)
+  val isFirstRowDone = RegInit(false.B)
+  val isFirstColDone = RegInit(false.B)
+  val isSumOutValid = RegInit(false.B)
 
-  val squaredValid = ShiftRegister(io.diffSquared.valid, 2)
+  squareBuffer.io.enq.valid := io.diffSquared.valid
+  squareBuffer.io.enq.bits := io.diffSquared.bits.asUInt
+  sumBuffer.io.enq.valid := diffSquared.valid
+  sumBuffer.io.enq.bits := compute.io.sum.asUInt
 
-  val kernelDone = RegInit(false.B)
-  val colSum = RegInit(0.U(log2Ceil(width).W))
-  when(squaredValid) {
-    colSum := colSum + 1.U
-    when(colSum === (width-kSize).U) {
-      kernelDone := true.B
-    }.elsewhen(colSum === (width-1).U) {
-      kernelDone := false.B
-      colSum := 0.U
+  // Pre-reading
+  squareBuffer.io.deq.ready := isKernelRowDone && io.diffSquared.valid
+  sumBuffer.io.deq.ready := isFirstRowDone && io.diffSquared.valid
+
+  val flush = ShiftRegister(isImgDone, 2)
+  squareBuffer.io.flush := flush
+  sumBuffer.io.flush := flush
+
+  when(diffSquared.valid) {
+    currCol := currCol + 1.U
+    isFirstColDone := true.B
+    when(currCol === (kSize-1).U) {
+      isKernelColDone := true.B
     }
   }
+  when(isRowDone) {
+    currCol := 0.U
+    isKernelColDone := false.B
+    isFirstRowDone := true.B
+    isFirstColDone := false.B
+  }
+  when(currRow === kSize.U) {
+    isKernelRowDone := true.B
+  }.elsewhen(currRow === (kSize-1).U) {
+    isSumOutValid := true.B
+  }
+  when(isImgDone) {
+    isKernelRowDone := false.B
+    isFirstRowDone := false.B
+    isSumOutValid := false.B
+  }
 
-  io.sum.valid := Mux(kernelDone, squaredValid, false.B)
-  io.sum.bits := RegNext(sum)
+  // Get T+1: Pre-read values and compute for next cycle
+  val (preTopSum, preTopSquare) = (
+    WireInit(sumBuffer.io.deq.bits.asSInt),
+    WireInit(squareBuffer.io.deq.bits.asSInt))
+  val preSum = Mux(isFirstRowDone, preTopSum, 0.S)
+  val preSquare = Mux(isKernelRowDone, preTopSquare, 0.S)
+  val topPrecomp = RegNext(preSum - preSquare)
+  // T
+  val (topSum, topSquare) = (RegNext(preSum), RegNext(preSquare))
+  val currSquare = diffSquared.bits
+  // T-1 && T-kSize
+  val leftSums = RegNext(compute.io.sum - topSum)
+  val leftSquares = ShiftRegister(topSquare - currSquare, kSize)
+
+  compute.io.currSquare := currSquare
+  compute.io.leftSquares := Mux(isKernelColDone, leftSquares, 0.S)
+  compute.io.leftSums := Mux(isFirstColDone, leftSums, 0.S)
+  compute.io.topSquareSum := topPrecomp
+   
+  io.sum.valid := Mux(isKernelColDone, RegNext(diffSquared.valid) && isSumOutValid, false.B)
+  io.sum.bits := RegNext(compute.io.sum)
 }
