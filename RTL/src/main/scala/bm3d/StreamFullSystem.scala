@@ -22,7 +22,7 @@ class StreamFullSystem(
 
   val streamDiffSquare = Module(new StreamDiffSquare(wSize, width, nbWorkers))
   val streamSquaredSum = Seq.fill(nbWorkers)(
-    Module(new StreamSquaredSum(width-wSize, height-(wSize/2), kSize)))
+    Module(new StreamSquaredSumOpt(width-wSize, height-(wSize/2), kSize)))
   val pixelCount = RegInit(0.U(log2Ceil(width*height).W))
   val pixelLast = WireInit(false.B)
   when(io.pixel.valid) {
@@ -35,9 +35,15 @@ class StreamFullSystem(
 
   streamDiffSquare.io.pixelLast := pixelLast
   streamDiffSquare.io.pixel := io.pixel
+
+  val aligned = true
   for(chan <- 0 until nbWorkers) {
     streamSquaredSum(chan).io.diffSquared := streamDiffSquare.io.diffSquared(chan)
-    io.sum(chan) := streamSquaredSum(chan).io.sum
+    if(aligned) {
+      io.sum(chan) := ShiftRegister(streamSquaredSum(chan).io.sum, nbWorkers - chan - 1)
+    } else {
+      io.sum(chan) := streamSquaredSum(chan).io.sum
+    }
   }
 }
 
@@ -70,12 +76,12 @@ class AXIStreamFullSystem(
   streamer.io.pixel.bits := regOut(nbWorkers + 1)(7,0)
   streamer.io.pixel.valid := regOut(nbWorkers + 1)(8,8)
   for(chan <- 0 until nbWorkers) {
-    regIn(chan) := streamer.io.sum(chan).bits.asUInt
+    regIn(chan) := RegNext(streamer.io.sum(chan).bits.asUInt)
   }
 
   val validConcat = streamer.io.sum.foldLeft(0.U) { 
     (acc, bits) => Cat(acc, bits.valid.asUInt) }
-  regIn(nbWorkers) := validConcat
+  regIn(nbWorkers) := RegNext(validConcat)
 
 
   val io = IO(new Bundle {
@@ -83,4 +89,3 @@ class AXIStreamFullSystem(
   })
   io.axiLite <> regFile.io.axiLite
 }
-
