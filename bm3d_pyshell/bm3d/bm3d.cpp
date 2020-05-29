@@ -38,6 +38,22 @@
 #define DCWIENER
 //#define MTRICK
 
+const bool WRITE_BM = false;
+const bool COMPUTE_BM_1 = false;
+const bool COMPUTE_BM_2 = false;
+const bool WRITE_SUM_TABLE = false;
+const bool READ_SUM_TABLE_1 = false;
+const bool READ_SUM_TABLE_2 = false;
+
+const std::string read_filename_1 = "bm1.data";
+const std::string read_filename_2 = "bm2.data";
+const std::string write_filename_1 = "bm1.data";
+const std::string write_filename_2 = "bm2.data";
+
+const std::string read_sum_table_1 = "sumTable1.data";
+const std::string read_sum_table_2 = "sumTable2.data";
+const std::string write_sum_table_1 = "sumTable1.data";
+const std::string write_sum_table_2 = "sumTable2.data";
 
 using namespace std;
 
@@ -109,7 +125,11 @@ int run_bm3d (
             << "," << nb_threads
             << "," << verbose << endl;
     }
-
+    cout << "Last 10 img noisy float elements" << endl;
+    for(int i=10; i>0; --i){
+          cout << img_noisy[width*height*chnls-1-i] << " ";
+        }
+    cout << "\n" << endl;
     //! Parameters
     const unsigned nHard = 16; //! Half size of the search window
     const unsigned nWien = 16; //! Half size of the search window
@@ -117,6 +137,7 @@ int run_bm3d (
     const unsigned NWien = 32; //! Must be a power of 2
     const unsigned pHard = 3;
     const unsigned pWien = 3;
+
     // patch_size must be larger than 0
     if (patch_size == 0)
     {
@@ -365,6 +386,12 @@ int run_bm3d (
         }
     fftwf_cleanup();
 
+    cout << "Last 10 img denoised float elements" << endl;
+    for(int i=10; i>0; --i){
+          cout << img_denoised[width*height*chnls-1-i] << " ";
+        }
+    cout << "\n" << endl;
+
     return EXIT_SUCCESS;
 }
 
@@ -446,8 +473,10 @@ void bm3d_1st_step (
 
     //! Precompute Bloc-Matching
     vector<vector<unsigned> > patch_table;
-    precompute_BM(patch_table, img_noisy, width, height, kHard, NHard, nHard, pHard, tauMatch);
-
+    if (::COMPUTE_BM_1)
+      precompute_BM(patch_table, img_noisy, width, height, kHard, NHard, nHard, pHard, tauMatch, ::write_filename_1);
+    else
+      readVectorFromFile(patch_table, ::read_filename_1);
     //! table_2D[p * N + q + (i * width + j) * kHard_2 + c * (2 * nHard + 1) * width * kHard_2]
     vector<float> table_2D((2 * nHard + 1) * width * chnls * kHard_2, 0.0f);
 
@@ -628,8 +657,10 @@ void bm3d_2nd_step(
 
     //! Precompute Bloc-Matching
     vector<vector<unsigned> > patch_table;
-    precompute_BM(patch_table, img_basic, width, height, kWien, NWien, nWien, pWien, tauMatch);
-
+    if (::COMPUTE_BM_2)
+        precompute_BM(patch_table, img_basic, width, height, kWien, NWien, nWien, pWien, tauMatch, ::write_filename_2);
+    else
+        readVectorFromFile(patch_table, ::read_filename_2);
     //! Preprocessing of Bior table
     vector<float> lpd, hpd, lpr, hpr;
     bior15_coef(lpd, hpd, lpr, hpr);
@@ -1292,7 +1323,8 @@ void precompute_BM(
     const unsigned NHW,
     const unsigned nHW,
     const unsigned pHW,
-    const float    tauMatch
+    const float    tauMatch,
+    const string write_filename
     ){
     //! Declarations
     const unsigned Ns = 2 * nHW + 1;
@@ -1321,7 +1353,9 @@ void precompute_BM(
                     diff_table[k] = (img[k + dk] - img[k]) * (img[k + dk] - img[k]);
             }
 
-            //! Compute the sum for each patches, using the method of the integral images
+            //! Compute the sum for each patches, using the method of the integral
+            //dn - distance from first to last pixel in a patch
+            //keep in mind this is already two patches stacked
             const unsigned dn = nHW * width + nHW;
             //! 1st patch, top left corner
             float value = 0.0f;
@@ -1427,8 +1461,11 @@ void precompute_BM(
             if (nSx_r == 1)
                 patch_table[k_r].push_back(table_distance[0].second);
 #endif
+
         }
     }
+    if (::WRITE_BM)
+        writeVectorToFile(patch_table, write_filename);
 }
 
 /**

@@ -205,23 +205,35 @@ def simple_bm3d(img : np.ndarray):
     cdef unsigned chnls = img_shape[2]
     cdef unsigned size = img.size
     cdef int patch_size = 0
-    cdef int nb_threads = 1
+    cdef int nb_threads = 0
+
 
     print("Image of dimentions H*W*C={}*{}*{}={}"
           .format(height, width, chnls, size))
-    # img = img.transpose(2, 1, 0)
+    #print("img red:", img[:3,:3,0])
+    #print("img green:", img[:3,:3,1])
+    #print("img blue:", img[:3,:3,2])
+    img = img.transpose((2,0,1))
+
+
     print("Image tranposed of dimentions {}*{}*{}={}"
           .format(img.shape[0], img.shape[1], img.shape[2], img.size))
 
     print("Running: "
           "./bm3d SomeInputImage -useSD_wien -tau_2d_hard bior -tau_2d_wien dct -color_space rgb")
 
-    img_vec = np.ascontiguousarray(img.flatten(), dtype=np.float32) # Makes a contiguous copy of the numpy array.
+    #img_vec = np.ascontiguousarray(img.flatten(), dtype=np.float32) # Makes a contiguous copy of the numpy array.
+    img_vec = img.flatten().astype(np.float32)
+    #img_vec = img_vec/256
 
-    cdef vector[float] img_noisy = img_vec
+    cdef vector[float] img_noisy
+    img_noisy.resize(size)
+    for i in range(size):
+        img_noisy[i] = img_vec[i]
     cdef vector[float] img_basic, img_denoised
-    print(img_vec.shape)
-    ret = run_bm3d(10, img_noisy, img_basic, img_denoised,
+    print('img_noisy 10:', img_noisy[:10])
+    #print('img_noisy shape: ', img_noisy.shape)
+    ret = run_bm3d(20, img_noisy, img_basic, img_denoised,
                    width, height, chnls, useSD_1, useSD_2,
                    tau_2D_hard, tau_2D_wien,
                    color_space, patch_size,
@@ -232,13 +244,18 @@ def simple_bm3d(img : np.ndarray):
                         "with an error: {%d}".format(ret))
 
 
+    print('img_denoised:', img_denoised[:10])
     img_res = np.array(img_denoised, dtype=np.float32)
-    print(img_res.shape)
+    #print('img_res:', img_res[:10])
+    #print(img_res.shape)
 
-    img_res = np.reshape(img_res, (img_shape[0], img_shape[1], img_shape[2]))
-    print(img_res.shape)
-    # img_res = img_res.transpose(2, 1, 0)
-    print(img_res.shape)
+    img_res = np.reshape(img_res, (img.shape[0], img.shape[1], img.shape[2]))
+    #print(img_res.shape)
+    img_res = img_res.transpose((1, 2, 0))
+    #print('img_res.shape: ',img_res.shape)
+    #print("img_res red:", img_res[:3,:3,0])
+    #print("img_res green:", img_res[:3,:3,1])
+    #print("img_res blue:", img_res[:3,:3,2])
 
     print("Image result {}*{}*{}={}"
           .format(img_res.shape[0], img_res.shape[1], img_res.shape[2], img_res.size))

@@ -108,7 +108,6 @@ int main(int argc, char **argv)
     //! Load image
 	if(load_image(argv[1], img_noisy, &width, &height, &chnls) != EXIT_SUCCESS)
         return EXIT_FAILURE;
-
 	float fSigma = atof(argv[2]);
 
    //! Denoising

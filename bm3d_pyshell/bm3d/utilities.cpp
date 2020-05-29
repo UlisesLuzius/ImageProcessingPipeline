@@ -24,6 +24,11 @@
 #include <unistd.h>
 #include <math.h>
 
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <vector>
+
 #include "utilities.h"
 extern "C"{
 #include "iio.h"
@@ -727,4 +732,99 @@ unsigned ind_pow2(
            (N == 3 ? 8  :
            (N == 4 ? 16 :
            (N == 5 ? 32 : 64) ) ) ) ) );
+}
+
+/**
+  * @brief writes a given vector of vectors to a given location
+  *
+  * @param vector : vector to be written
+  * @param filename : path to the file, must exist before (?)
+**/
+void writeVectorToFile(vector<vector<unsigned int>> const &vector, string const &filename) {
+  ofstream file;
+  file.open(filename, ofstream::out | ofstream::trunc);
+
+  for (int i=0; i<vector.size(); i++) {
+    for (int val: vector[i]) {
+      file << val << " ";
+    }
+    if(i != vector.size()-1){
+      file << '\n';
+    }
+  }
+  file.close();
+}
+
+/**
+  * @brief reads a given vector of vectors from a given location
+  *
+  * @param vector : vector to read to
+  * @param filename : path to the file
+**/
+void readVectorFromFile(vector<vector<unsigned int>> &vector, string const &filename) {
+  ifstream myfile(filename);
+
+  if (myfile.is_open())
+  {
+    std::vector<unsigned int> temp;
+    unsigned a;
+
+    string line;
+    while (getline(myfile, line)) {
+        temp.clear();
+        istringstream buffer(line);
+        while(buffer >> a){
+          temp.push_back(a);
+        }
+        vector.push_back(temp);
+    }
+    myfile.close();
+  }
+}
+
+/**
+  * @brief writes a given vector of vectors to a given location
+  *
+  * @param vector : vector to be written
+  * @param filename : path to the file, must exist before (?)
+**/
+void writeFloatVectorToFile(vector<vector<float>> const &vector, string const &filename) {
+  ofstream file;
+  myFile.open(filename, ofstream::out | ofstream::trunc);
+  for (unsigned int i=0; i<vector.size(); i++) {
+    for (float val: vector[i]) {
+      file << val << " ";
+    }
+    if(i != vector.size()-1){
+      file << '\n';
+    }
+  }
+  file.close();
+}
+
+/**
+  * @brief reads a given vector of vectors from a given location
+  *
+  * @param vector : vector to read to
+  * @param filename : path to the file
+**/
+void readFloatVectorFromFile(vector<vector<float>> &vector, string const &filename) {
+  ifstream myfile(filename);
+
+  if (myfile.is_open())
+  {
+    std::vector<float> temp;
+    float a;
+
+    string line;
+    while (getline(myfile, line)) {
+        temp.clear();
+        istringstream buffer(line);
+        while(buffer >> a){
+          temp.push_back(a);
+        }
+        vector.push_back(temp);
+    }
+    myfile.close();
+  }
 }
