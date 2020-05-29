@@ -31,8 +31,9 @@ class AxiMemoryMappedRegFile(implicit val cfg: AxiMemoryMappedRegFileConfig) ext
   val regFile = RegInit(VecInit(Seq.fill(cfg.nbrReg)(0.U(dataWidth.W))))
   val regsOutput = VecInit(Seq.fill(cfg.nbrReg)(0.U(dataWidth.W)))
   val regsInput = io.regsInput
-  val axiLite_awaddr = io.axiLite.awaddr >> 2.U // 32Bit words addressed
-  val axiLite_araddr = io.axiLite.araddr >> 2.U
+  // TODO: THE REGNEXT BREAKS THIS MODULE
+  val axiLite_awaddr = RegNext(io.axiLite.awaddr >> 2.U) // 32Bit words addressed
+  val axiLite_araddr = RegNext(io.axiLite.araddr >> 2.U)
 
   // Write Transaction, always ready
   io.axiLite.awready := true.B
