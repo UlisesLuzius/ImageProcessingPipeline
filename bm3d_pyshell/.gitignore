@@ -1,0 +1,31 @@
+bm3d_pyshell/*.cpp
+bm3d_pyshell/*.c
+*.png
+
+# Distribution / packaging
+build/
+*.egg-info/
+*.eggs
+dist
+
+# C extensions
+*.so
+
+# OSX
+.DS_Store
+
+# Text editor backup files
+*~
+*.swp
+.vscode
+
+# Python
+.venv
+*.pyc
+__pycache__
+.ipynb_checkpoints
+.python-version
+
+# Unit test / coverage reports
+.tox/
+.cache
