@@ -130,5 +130,28 @@ unsigned ind_pow2(
     const unsigned N
 );
 
+//! Writes a given vector of vectors at the given location
+void writeVectorToFile(
+  std::vector<std::vector<unsigned int>> const &vector,
+  std::string const &filename
+);
+
+//! Reads a given vector at the given location
+void readVectorFromFile(
+  std::vector<std::vector<unsigned int>> &vector,
+  std::string const &filename
+);
+
+//! Writes a given vector of vectors at the given location
+void writeFloatVectorToFile(
+  std::vector<std::vector<float>> const &vector,
+  std::string const &filename
+);
+
+//! Reads a given vector at the given location
+void readFloatVectorFromFile(
+  std::vector<std::vector<float>> &vector,
+  std::string const &filename
+);
 
 #endif // UTILITIES_H_INCLUDED

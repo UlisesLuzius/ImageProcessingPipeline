@@ -204,7 +204,8 @@ void precompute_BM(
     const unsigned NHW,
     const unsigned n,
     const unsigned pHW,
-    const float    tauMatch
+    const float    tauMatch,
+    const std::string write_filename
     );
 
 #endif // BM3D_H_INCLUDED
