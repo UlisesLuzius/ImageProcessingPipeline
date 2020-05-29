@@ -25,6 +25,8 @@ import chisel3.stage.{ChiselStage, ChiselGeneratorAnnotation}
 import firrtl.{EmitAllModulesAnnotation}
 import firrtl.options.{TargetDirAnnotation}
 
+import imageTrans._
+
 object StreamFullSystemGen extends App {
   val annotations = Seq.empty
   val arguments = Array(
@@ -48,7 +50,7 @@ object AXIStreamFullSystemGen extends App {
     "--target-dir", "verilog/AxiFullSystem")
 
   val (width, height, kSize, wSize, nbWorkers) =
-      (  720,   1280,     8,    32,        16)
+      (  720,   1280,     8,    32,         4)
 
   (new ChiselStage).execute(Array("-X", "verilog") ++ arguments, 
     ChiselGeneratorAnnotation(() => new AXIStreamFullSystem(
@@ -59,8 +61,8 @@ object AXIStreamFullSystemGen extends App {
 
 
 class StreamFullSystemDriver(duv: StreamFullSystem) {
-  def unsinged(x: Int): BigInt = (BigInt(x >>> 1) << 1) | BigInt(x & 1)
-  def unsinged(x: Byte): BigInt = (BigInt(x >>> 1) << 1) | BigInt(x & 1)
+  def unsigned(x: Int): BigInt = (BigInt(x >>> 1) << 1) | BigInt(x & 1)
+  def unsigned(x: Byte): BigInt = (BigInt(x >>> 1) << 1) | BigInt(x & 1)
 
   private def init: Unit = {
     duv.io.pixel.valid.poke(false.B)
@@ -92,6 +94,56 @@ class StreamFullSystemDriver(duv: StreamFullSystem) {
     }
     duv.clock.step(20)
   }
+
+  def runDUVimg(pixelArray: Array[Byte]): ArrayBuffer[ArrayBuffer[Int]] = {
+
+    val res: ArrayBuffer[ArrayBuffer[Int]] = ArrayBuffer.fill(duv.wSize*duv.wSize/2)(
+      ArrayBuffer.fill(duv.height*duv.width)(0))
+    var streamedOut: Long = 0
+    var currWorkers: Long = 0
+    var currOffst: Int = 0
+    duv.clock.step(3)
+    fork {
+      for(jump <- 0 until (duv.wSize/duv.nbWorkers)*(duv.wSize/2)) {
+        duv.io.pixel.valid.poke(true.B)
+        for (
+          row <- 0 until duv.height;
+          col <- 0 until duv.width
+        ) {
+          val currPixel = row * duv.width + col
+          val pixel = pixelArray(currPixel)
+          duv.io.pixel.bits.poke(unsigned(pixel).U)
+          duv.clock.step()
+        }
+        duv.io.pixel.valid.poke(false.B)
+        duv.clock.step(5)
+        currOffst = currOffst + duv.nbWorkers
+      }
+    }.fork {
+      var currPixel = (duv.wSize/2)*duv.width + (duv.wSize/2)
+      var cnt = 0
+      var lastOffst = 0
+      while(cnt < duv.width*duv.height*duv.wSize*duv.wSize/2) {
+        if(duv.io.sum(0).valid.peek.litToBoolean) {
+          for(i <- 0 until duv.nbWorkers) {
+            res(currOffst + i)(currPixel) = duv.io.sum(i).bits.peek.litValue.toInt 
+          }
+          currPixel = currPixel + 1
+        }
+        if(lastOffst != currOffst) {
+          lastOffst = currOffst
+          currPixel = (duv.wSize/2)*duv.width + (duv.wSize/2)
+        }
+        duv.clock.step()
+        
+        cnt = cnt + 1
+        if(cnt % 1000 == 0) {
+          println("1000 clock cycles passed")
+        }
+      }
+    }.join()
+    return res
+  }
 }
 
 class StreamFullSystemTester extends FlatSpec with ChiselScalatestTester {
@@ -105,10 +157,32 @@ class StreamFullSystemTester extends FlatSpec with ChiselScalatestTester {
   behavior of "duv FullSystem"
 
   //*
-  it should "return sum of difference from an image input" in {
-    test(new StreamFullSystem(10, 6, 4, 4, 1)).withAnnotations(annos) { dut =>
+  it should "return sum of difference from a generated image" in {
+    test(new StreamFullSystem(20, 15, 4, 8, 4)).withAnnotations(annos) { dut =>
       val duvDrv = new StreamFullSystemDriver(dut)
       duvDrv.runDUV()
+    }
+  }
+  // */
+}
+
+class GenSumTable extends FlatSpec with ChiselScalatestTester {
+
+  val annos = Seq(
+    VerilatorBackendAnnotation
+    ,TargetDirAnnotation("test/fullSystem")
+    //,WriteVcdAnnotation)
+    )
+
+  behavior of "duv FullSystem"
+
+  //*
+  it should "return sum of difference from an image input" in {
+    test(new StreamFullSystem(451, 300, 8, 32, 8)).withAnnotations(annos) { dut =>
+      val imgDrv = new ImageTransformDriver(300, 451)
+      val img = imgDrv.openFile("/singleChannel")
+      val duvDrv = new StreamFullSystemDriver(dut)
+      val sumTable: Seq[Seq[Int]] = duvDrv.runDUVimg(img)
     }
   }
   // */
